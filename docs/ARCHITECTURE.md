@@ -1,7 +1,7 @@
 # Architecture
 
 A local-first, offline-capable PWA (React 19, TypeScript, Vite, Dexie/IndexedDB). No backend, accounts, sync or
-bank integration: every challenge lives only on the device. The interface is Swedish.
+bank integration: every challenge lives only on the device. The interface is available in Swedish (default) and English.
 
 ## Layers
 
@@ -11,6 +11,7 @@ bank integration: every challenge lives only on the device. The interface is Swe
 | Persistence | `src/persistence/` | Dexie schema, repository, migration, backups, validation, typed errors |
 | App state | `src/app/` | `use-savings-app.ts` (state, actions, Stockholm "today"), `savings-view.ts` (view models) |
 | UI | `src/ui/`, `src/App.tsx` | Screens and dialogs. No database terms are shown to the user |
+| Language | `src/i18n/` | Dictionaries (`messages.sv.ts`, `messages.en.ts`), formatters, language preference, provider |
 
 ## Challenge rules
 
@@ -97,7 +98,29 @@ more than 50 challenges and files over 20 MB. All problems are `BackupValidation
 
 `BackupValidationError` (bad file), `PersistenceIntegrityError` (damaged or rule-breaking data; `LegacyDataDamagedError` for v1),
 `PersistenceDatabaseError` (browser storage failure; `PersistenceVersionError` when a newer app version upgraded the data). The UI
-turns each into plain Swedish (`src/ui/sv.ts`).
+turns each into plain language in the selected language (`src/i18n/describe.ts`).
+
+## Languages (Swedish and English)
+
+- **One consistent system, no dependency.** Every user-visible text lives in two typed dictionaries. `messages.sv.ts` defines the
+  `Messages` type and `messages.en.ts` is declared as `Messages`, so a key missing in either language is a compile error. Texts with
+  parameters are functions that receive already formatted amounts and dates. Components read `const { t, fmt } = useI18n()`; plain
+  functions (form validation, error and notice descriptions) take an `I18n` argument (`createI18n('sv' | 'en')`).
+- **Formatting follows the language, values never change.** `src/i18n/formatters.ts` formats dates (Swedish "8 nov. 2026",
+  English "8 Nov 2026"), amounts (Swedish "50 000 kr", English "SEK 50,000": the currency is SEK in both) and percentages. Stored
+  dates are `YYYY-MM-DD` keys and stored amounts are integers; only their display changes.
+- **Live messages.** Feedback and recovery notices are stored as language-neutral descriptors and turned into words at render time,
+  so a message that is already visible changes language together with the screen.
+- **Selector and persistence.** Settings has a Svenska 🇸🇪 / English 🇬🇧 selector at the top. The choice is applied immediately,
+  saved in `localStorage` under `spar.language` (`sv` or `en`), synced between open tabs, and read at start. Swedish is used when
+  nothing valid is stored or storage is blocked; an existing choice is never overridden. It lives in `localStorage` and not in
+  IndexedDB on purpose: it must work before the database opens (the recovery and reload screens), and it must never be part of
+  challenge data, backups, raw exports or migrations. It is origin storage, so it survives reloads, restarts and app updates.
+- **Defaults of new challenges.** Only the suggested name ("Utmaning 2" / "Challenge 2") depends on the language when the form opens;
+  a name the user typed or saved is stored exactly as entered and is never translated.
+- **Adding a language** means adding one dictionary typed as `Messages`, one locale in `formatters.ts`, and the code in `language.ts`.
+- **Tests** check structure parity, that no English leaks into Swedish and no Swedish into English, and walk every screen, dialog,
+  message and accessibility label in both languages.
 
 ## PWA and dates
 
@@ -109,6 +132,10 @@ turns each into plain Swedish (`src/ui/sv.ts`).
 - The app asks the browser for persistent storage and shows the result in Settings.
 
 ## Known limitations
+
+- The installed app name and icon text (web app manifest) and the page title shown before the app starts are Swedish; the browser
+  cannot switch them per user. Once the app runs, the page title and the `lang` attribute follow the selected language.
+- Flag emoji are drawn by the operating system: some desktop systems (for example Windows) show "SE" and "GB" instead of flags.
 
 - Data lives in one browser on one device. Clearing site data or uninstalling the app deletes it: export backups regularly.
 - No automatic backups. No deletion of challenges (history is preserved by design).
