@@ -1,24 +1,34 @@
-# 50K Savings Challenge
+# 50K Sparutmaning
 
-An offline-first, private Progressive Web App for a 50,000 SEK savings challenge from 1 January to 30 June 2027.
+A calm, private savings challenge. Each day you draw a random amount and confirm when you have actually saved it.
+Local-first and offline: no accounts, no backend, no cloud. The interface is in Swedish.
 
-## Local development
+- Create challenges with your own target, start date and end date (default: 50,000 SEK, ending 30 June 2027; start today or later).
+- Run several independent challenges, switch between them, and keep finished ones as history.
+- Only confirmed amounts count. Missed days are visible and never count; the plan recalculates without moving the deadline.
+- Export and import backups (old v1 files import as a new challenge; v2 files can be added or, after confirmation, replace everything).
+- Damaged data from an earlier version can be saved as a raw file and skipped explicitly, without deleting anything.
+
+Live: https://yasinc-clinic.github.io/50k-savings-challenge/
+
+## Develop
 
 ```bash
 npm install
-npm run dev
+npm run dev            # local server
+npm test               # unit, persistence and component tests (fake IndexedDB, jsdom)
+npm run test:coverage  # with coverage
+npm run lint
+npm run build          # typecheck (tsc -b) + production build
+npm run preview        # serve the production build
 ```
 
-Run the quality checks with `npm test`, `npm run lint`, and `npm run build`.
+## Documentation
 
-## GitHub Pages
+- [Architecture, schema, migration and backups](docs/ARCHITECTURE.md)
+- [Release, backup and rollback](docs/RELEASE.md)
 
-The deployment workflow is ready at `.github/workflows/deploy-pages.yml`. Once this folder is committed to a GitHub repository:
+## Install on iPhone
 
-1. Push the `main` branch.
-2. In GitHub repository settings, open **Pages** and select **GitHub Actions** as the source.
-3. The workflow publishes the app at `https://<owner>.github.io/<repository>/` for a project site, or `https://<owner>.github.io/` for an organization site.
-
-## iPhone installation
-
-Open the published URL in Safari, choose **Share**, then **Add to Home Screen**. The app works offline after its first successful load. Your savings data is stored locally in the browser; export a backup regularly.
+Open the published URL in Safari, choose Share, then "Lägg till på hemskärmen". The app works offline after the first load.
+Your data stays in the browser on that device: export a backup regularly (Inställningar).
