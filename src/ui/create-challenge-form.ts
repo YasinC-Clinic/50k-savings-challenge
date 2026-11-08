@@ -1,24 +1,34 @@
 import {
   CHALLENGE_LIMITS,
   DEFAULT_CHALLENGE_CONFIG,
+  DEFAULT_DURATION_MONTHS,
+  DURATION_MONTH_OPTIONS,
+  configForDuration,
   type ChallengeConfig,
 } from '../domain/challenge'
 import { MAX_NAME_LENGTH } from '../persistence/savings-repository'
-import { addDays, daysInclusive, isValidDateKey, sek } from './format'
+import { daysInclusive, sek } from './format'
 
 export interface ChallengeForm {
   name: string
   target: string
-  startDate: string
-  endDate: string
+  /** Chosen duration in calendar months; one of DURATION_MONTH_OPTIONS. */
+  months: number
 }
 
-export type FormField = keyof ChallengeForm
+export type FormField = 'name' | 'target' | 'months'
+
+/** What the chosen duration turns into, calculated from today's Stockholm date. */
+export interface ChallengePlan {
+  startDate: string
+  endDate: string
+  dayCount: number
+}
 
 export interface ValidForm {
   config: ChallengeConfig
   name: string
-  dayCount: number
+  plan: ChallengePlan
   averagePerDay: number
 }
 
@@ -28,25 +38,26 @@ export type FormValidation =
 
 const { initialMinimumSek, preferredMaximumSek } = DEFAULT_CHALLENGE_CONFIG
 
-/** New challenge starting today, ending on the default end date (or 180 days later if that has passed). */
-export function defaultForm(today: string, existingCount: number): ChallengeForm {
-  const endDate = DEFAULT_CHALLENGE_CONFIG.endDate > today ? DEFAULT_CHALLENGE_CONFIG.endDate : addDays(today, 180)
-  return { name: `Utmaning ${existingCount + 1}`, target: String(DEFAULT_CHALLENGE_CONFIG.targetSek), startDate: today, endDate }
+/** "1 månad", "2 månader", ... */
+export function durationLabel(months: number): string {
+  return months === 1 ? '1 månad' : `${months} månader`
 }
 
-/** The original challenge: 50,000 SEK from 1 January to 30 June 2027. */
-export function standardForm(existingCount: number): ChallengeForm {
-  const { targetSek, startDate, endDate } = DEFAULT_CHALLENGE_CONFIG
-  return { name: `Utmaning ${existingCount + 1}`, target: String(targetSek), startDate, endDate }
+/** Six months, 50,000 SEK. The name continues the numbering of existing challenges. */
+export function defaultForm(existingCount: number): ChallengeForm {
+  return { name: `Utmaning ${existingCount + 1}`, target: String(DEFAULT_CHALLENGE_CONFIG.targetSek), months: DEFAULT_DURATION_MONTHS }
 }
 
-/** Length of the period if both dates are valid and in order, otherwise null. Safe for any input. */
-export function previewDays(startDate: string, endDate: string): number | null {
-  if (!isValidDateKey(startDate) || !isValidDateKey(endDate) || endDate <= startDate) return null
-  return daysInclusive(startDate, endDate)
+/**
+ * Start = `today` (the Stockholm calendar date), end = start plus `months` calendar months.
+ * The day count is the exact number of calendar days from start to end, both included.
+ */
+export function planFor(today: string, months: number): ChallengePlan {
+  const { startDate, endDate } = configForDuration(today, months)
+  return { startDate, endDate, dayCount: daysInclusive(startDate, endDate) }
 }
 
-function parseTarget(text: string): number | null {
+export function parseTarget(text: string): number | null {
   const digits = text.replace(/[\s ]/g, '').replace(/kr$/i, '')
   return /^\d+$/.test(digits) ? Number(digits) : null
 }
@@ -54,22 +65,18 @@ function parseTarget(text: string): number | null {
 export function validateForm(form: ChallengeForm, today: string): FormValidation {
   const errors: Partial<Record<FormField, string>> = {}
   const target = parseTarget(form.target)
+  const knownDuration = (DURATION_MONTH_OPTIONS as readonly number[]).includes(form.months)
 
   if (form.name.trim().length > MAX_NAME_LENGTH) errors.name = `Namnet kan vara högst ${MAX_NAME_LENGTH} tecken.`
+  if (!knownDuration) errors.months = 'Välj hur länge du vill spara.'
   checkTarget(target, errors)
-  checkDates(form, today, errors)
-  const dayCount = errors.startDate || errors.endDate ? null : daysInclusive(form.startDate, form.endDate)
-  if (dayCount !== null) checkPeriod(dayCount, target, errors)
 
-  if (Object.keys(errors).length > 0 || target === null || dayCount === null) return { ok: false, errors }
-  const config: ChallengeConfig = {
-    targetSek: target,
-    startDate: form.startDate,
-    endDate: form.endDate,
-    initialMinimumSek,
-    preferredMaximumSek,
-  }
-  return { ok: true, value: { config, name: form.name.trim(), dayCount, averagePerDay: Math.round(target / dayCount) } }
+  const plan = knownDuration ? planFor(today, form.months) : null
+  if (plan && target !== null && !errors.target) checkPeriod(plan.dayCount, target, form.months, errors)
+
+  if (Object.keys(errors).length > 0 || target === null || plan === null) return { ok: false, errors }
+  const config = configForDuration(today, form.months, target)
+  return { ok: true, value: { config, name: form.name.trim(), plan, averagePerDay: Math.round(target / plan.dayCount) } }
 }
 
 function checkTarget(target: number | null, errors: Partial<Record<FormField, string>>): void {
@@ -78,24 +85,14 @@ function checkTarget(target: number | null, errors: Partial<Record<FormField, st
   else if (target > CHALLENGE_LIMITS.maxTargetSek) errors.target = `Målet kan vara högst ${sek(CHALLENGE_LIMITS.maxTargetSek)}.`
 }
 
-function checkDates(form: ChallengeForm, today: string, errors: Partial<Record<FormField, string>>): void {
-  if (!isValidDateKey(form.startDate)) errors.startDate = 'Ange ett giltigt startdatum.'
-  else if (form.startDate < today) errors.startDate = 'Startdatumet kan inte ligga före idag.'
-  if (!isValidDateKey(form.endDate)) errors.endDate = 'Ange ett giltigt slutdatum.'
-  else if (!errors.startDate && form.endDate <= form.startDate) errors.endDate = 'Slutdatumet måste ligga efter startdatumet.'
-}
-
-function checkPeriod(dayCount: number, target: number | null, errors: Partial<Record<FormField, string>>): void {
-  if (dayCount > CHALLENGE_LIMITS.maxDays) {
-    errors.endDate = `En utmaning kan vara högst ${CHALLENGE_LIMITS.maxDays.toLocaleString('sv-SE')} dagar.`
-    return
-  }
-  if (target === null || errors.target) return
+/** The daily amounts are limited to 50-500 kr, so a period can only hold a target inside that range. */
+function checkPeriod(dayCount: number, target: number, months: number, errors: Partial<Record<FormField, string>>): void {
   const lowest = dayCount * initialMinimumSek
   const highest = dayCount * preferredMaximumSek
+  const period = durationLabel(months)
   if (target < lowest) {
-    errors.target = `Målet är för lågt för ${dayCount} dagar. Minst ${sek(lowest)} krävs (${sek(initialMinimumSek)} per dag). Höj målet eller korta ner perioden.`
+    errors.target = `Målet är för lågt för ${period} (${dayCount} dagar). Minst ${sek(lowest)} krävs (${sek(initialMinimumSek)} per dag). Höj målet eller välj en kortare tid.`
   } else if (target > highest) {
-    errors.target = `Målet är för högt för ${dayCount} dagar. Högst ${sek(highest)} går att spara (${sek(preferredMaximumSek)} per dag). Sänk målet eller välj ett senare slutdatum.`
+    errors.target = `Målet är för högt för ${period} (${dayCount} dagar). Högst ${sek(highest)} går att spara (${sek(preferredMaximumSek)} per dag). Sänk målet eller välj en längre tid.`
   }
 }

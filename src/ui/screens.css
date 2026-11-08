@@ -313,6 +313,80 @@ button:disabled {
   line-height: 1.5;
 }
 
+/* Duration selector */
+.duration-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.duration-picker legend {
+  margin-bottom: 0.7rem;
+  padding: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+.duration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.duration-option {
+  min-height: 3rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.8rem;
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.86rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.duration-option.selected {
+  border-color: var(--emerald);
+  background: var(--emerald-glow);
+  color: var(--emerald);
+  font-weight: 800;
+}
+
+.plan-summary {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0.3rem 1rem;
+  border: 1px solid rgba(226, 189, 112, 0.25);
+  border-radius: 0.9rem;
+  background: linear-gradient(135deg, #2a2619, #17201f);
+}
+
+.plan-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.86rem;
+}
+
+.plan-summary div:first-child {
+  border-top: 0;
+}
+
+.plan-summary dt {
+  color: var(--text-secondary);
+}
+
+.plan-summary dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 700;
+  text-align: right;
+}
+
 /* Dialogs */
 .dialog-backdrop {
   position: fixed;

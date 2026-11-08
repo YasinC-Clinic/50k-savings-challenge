@@ -5,7 +5,7 @@ import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
-import { DEFAULT_CHALLENGE_CONFIG, createChallenge, type ChallengeConfig } from '../domain/challenge'
+import { DEFAULT_CHALLENGE_CONFIG, confirmDay, createChallenge, drawToday, type ChallengeConfig } from '../domain/challenge'
 import { SavingsDatabase, SavingsRepository } from '../persistence/savings-repository'
 import { playedChallenge, seedV1Database, snapshotLegacyTables, uniqueName, v1BackupJson, withDay } from '../persistence/testing/v1-fixtures'
 import { sek } from './format'
@@ -76,11 +76,12 @@ describe('creating a challenge and the daily draw', () => {
     const drawButton = await startFirstChallenge(user)
 
     const created = (await repository.loadChallenge())!
-    expect(created.config).toMatchObject({ targetSek: 50_000, startDate: '2026-11-08', endDate: '2027-06-30' })
-    expect(created.days).toHaveLength(235)
+    // The default duration is six months: 8 Nov 2026 to 8 May 2027, 182 calendar days.
+    expect(created.config).toMatchObject({ targetSek: 50_000, startDate: '2026-11-08', endDate: '2027-05-08' })
+    expect(created.days).toHaveLength(182)
     expect(created.days.every((day) => day.status === 'undrawn')).toBe(true)
     expect(balance()).toBe('0 kr')
-    expect(norm(document.body.textContent)).toContain('DAG 1 AV 235')
+    expect(norm(document.body.textContent)).toContain('DAG 1 AV 182')
 
     await user.click(drawButton)
     await screen.findByText('Idag – inte bekräftat än')
@@ -127,13 +128,11 @@ describe('creating a challenge and the daily draw', () => {
     await expect(repository.saveChallenge(tampered)).rejects.toMatchObject({ name: 'PersistenceIntegrityError' })
   })
 
-  it('can start before the original 2027 start date and shows that the first draw has not opened yet', async () => {
+  it('shows that the first draw has not opened yet for a challenge that starts in the future', async () => {
+    // New challenges always start today, but the original 2027 challenge (and imports) start later.
     const { services, repository } = setup()
-    const user = userEvent.setup()
+    await repository.saveChallenge(createChallenge('future', DEFAULT_CHALLENGE_CONFIG, 'future'), { name: 'Våren 2027' })
     render(<App services={services} />)
-    await screen.findByText('Skapa din första utmaning')
-    await user.click(screen.getByRole('button', { name: /Standard: 50 000 kr/ }))
-    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
 
     await screen.findByText('Din första dragning väntar')
     expect(screen.queryByRole('button', { name: 'Dra dagens belopp' })).toBeNull()
@@ -152,30 +151,172 @@ describe('creating a challenge and the daily draw', () => {
     const target = screen.getByLabelText('Sparmål (kr)')
     await user.clear(target)
     await user.type(target, '1000')
-    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
-    expect(await screen.findByText(/Målet är för lågt för 235 dagar/)).toBeTruthy()
+    expect(await screen.findByText(/Målet är för lågt för 6 månader \(182 dagar\)/)).toBeTruthy()
+    const submit = screen.getByRole('button', { name: 'Starta utmaningen' })
+    expect(submit).toHaveProperty('disabled', true)
 
     await user.clear(target)
-    await user.type(target, '50000')
-    fireEvent.change(screen.getByLabelText('Startdatum'), { target: { value: '2026-11-01' } })
-    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
-    expect(await screen.findByText('Startdatumet kan inte ligga före idag.')).toBeTruthy()
+    await user.type(target, 'abc')
+    expect(await screen.findByText(/Ange målet i hela kronor/)).toBeTruthy()
+    expect(submit).toHaveProperty('disabled', true)
+    await user.click(submit)
     expect(await repository.listChallenges()).toEqual([])
   })
 
-  it('lets the user choose the end date and target', async () => {
+  it('shows the six-month default, a live summary, and no manual date fields', async () => {
+    const { services } = setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+
+    expect(screen.getByText('Hur länge vill du spara?', { selector: 'legend' })).toBeTruthy()
+    const radios = screen.getAllByRole('radio')
+    expect(radios.map((radio) => radio.textContent)).toEqual(['1 månad', '2 månader', '3 månader', '4 månader', '5 månader', '6 månader', '9 månader', '12 månader'])
+    expect(radios.filter((radio) => radio.getAttribute('aria-checked') === 'true').map((radio) => radio.textContent)).toEqual(['6 månader'])
+    expect(screen.queryByLabelText('Startdatum')).toBeNull()
+    expect(screen.queryByLabelText('Slutdatum')).toBeNull()
+
+    const summary = norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)
+    expect(summary).toContain('Startdatum8 nov. 2026 (idag)')
+    expect(summary).toContain('Slutdatum8 maj 2027')
+    expect(summary).toContain('Antal spardagar182 dagar')
+    expect(summary).toContain('Sparmål50 000 kr')
+  })
+
+  it('updates the summary live when another duration or target is chosen', async () => {
+    const { services } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+
+    await user.click(screen.getByRole('radio', { name: '12 månader' }))
+    let summary = norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)
+    expect(summary).toContain('Slutdatum8 nov. 2027')
+    expect(summary).toContain('Antal spardagar366 dagar')
+    expect(screen.getByRole('radio', { name: '12 månader' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: '6 månader' }).getAttribute('aria-checked')).toBe('false')
+
+    const target = screen.getByLabelText('Sparmål (kr)')
+    await user.clear(target)
+    await user.type(target, '120000')
+    summary = norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)
+    expect(summary).toContain('Sparmål120 000 kr')
+  })
+
+  it('explains that 50,000 kr does not fit 1-3 months, blocks creation, and allows 4 months', async () => {
     const { services, repository } = setup()
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    const submit = screen.getByRole('button', { name: 'Starta utmaningen' })
+
+    await user.click(screen.getByRole('radio', { name: '3 månader' }))
+    expect(await screen.findByText(/Målet är för högt för 3 månader \(93 dagar\)\. Högst 46.500/)).toBeTruthy()
+    expect(submit).toHaveProperty('disabled', true)
+    expect(await repository.listChallenges()).toEqual([])
+
+    await user.click(screen.getByRole('radio', { name: '4 månader' }))
+    await waitFor(() => expect(submit).toHaveProperty('disabled', false))
+    expect(screen.queryByText(/Målet är för högt/)).toBeNull()
+  })
+
+  it.each([
+    [1, 5_000, '2026-12-08', 31],
+    [2, 10_000, '2027-01-08', 62],
+    [3, 20_000, '2027-02-08', 93],
+    [4, 30_000, '2027-03-08', 121],
+    [5, 40_000, '2027-04-08', 152],
+    [6, 50_000, '2027-05-08', 182],
+    [9, 60_000, '2027-08-08', 274],
+    [12, 80_000, '2027-11-08', 366],
+  ])('creates a %i-month challenge with the exact calculated dates and target allocation', async (months, targetSek, endDate, days) => {
+    const { services, repository } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    await user.click(screen.getByRole('radio', { name: months === 1 ? '1 månad' : `${months} månader` }))
     const target = screen.getByLabelText('Sparmål (kr)')
     await user.clear(target)
-    await user.type(target, '12 000')
-    fireEvent.change(screen.getByLabelText('Slutdatum'), { target: { value: '2027-01-31' } })
-    expect(await screen.findByText(/85 dagar · cirka/)).toBeTruthy()
+    await user.type(target, String(targetSek))
     await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
     await screen.findByRole('button', { name: 'Dra dagens belopp' })
-    expect((await repository.loadChallenge())!.config).toMatchObject({ targetSek: 12_000, startDate: '2026-11-08', endDate: '2027-01-31' })
+
+    const stored = (await repository.loadChallenge())!
+    expect(stored.config).toEqual({ targetSek, startDate: '2026-11-08', endDate, initialMinimumSek: 50, preferredMaximumSek: 500 })
+    expect(stored.days).toHaveLength(days)
+    expect(stored.days.reduce((total, day) => total + day.amount, 0)).toBe(targetSek)
+    expect(norm(document.body.textContent)).toContain(`DAG 1 AV ${days}`)
+  })
+
+  it('starts on the Stockholm date, which is already tomorrow just after midnight there', async () => {
+    const { services, repository } = setup('2026-11-08T23:30:00Z')
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    expect(norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)).toContain('Startdatum9 nov. 2026 (idag)')
+    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
+    await screen.findByRole('button', { name: 'Dra dagens belopp' })
+    expect((await repository.loadChallenge())!.config).toMatchObject({ startDate: '2026-11-09', endDate: '2027-05-09' })
+  })
+
+  it('handles a month-end start in the UI: 31 January + 1 month ends on 28 February', async () => {
+    const { services, repository } = setup('2027-01-31T12:00:00+01:00')
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    await user.click(screen.getByRole('radio', { name: '1 månad' }))
+    const target = screen.getByLabelText('Sparmål (kr)')
+    await user.clear(target)
+    await user.type(target, '8000')
+    expect(norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)).toContain('Slutdatum28 feb. 2027')
+    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
+    await screen.findByRole('button', { name: 'Dra dagens belopp' })
+    const stored = (await repository.loadChallenge())!
+    expect(stored.config).toMatchObject({ startDate: '2027-01-31', endDate: '2027-02-28' })
+    expect(stored.days).toHaveLength(29)
+  })
+
+  it('leaves existing challenges untouched when a new one is created, and keeps their original dates', async () => {
+    const { services, repository } = setup()
+    const original = confirmDay(drawToday(createChallenge('original', DEFAULT_CHALLENGE_CONFIG, 'original'), '2027-01-01'), '2027-01-01')
+    await repository.saveChallenge(original, { name: 'Min första' })
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Min första')
+
+    await goTo(user, 'Utmaningar')
+    await user.click(await screen.findByRole('button', { name: /Ny utmaning/ }))
+    await user.click(screen.getByRole('button', { name: 'Skapa utmaning' }))
+    await screen.findByRole('button', { name: 'Dra dagens belopp' })
+
+    expect(await repository.loadChallenge('original')).toEqual(original)
+    const created = (await repository.listChallenges()).find((challenge) => challenge.id !== 'original')!
+    expect(created.config.endDate).toBe('2027-05-08')
+
+    await goTo(user, 'Utmaningar')
+    const cards = (await screen.findAllByRole('listitem')).map((card) => norm(card.textContent))
+    expect(cards.find((card) => card.includes('Min första'))).toContain('1 jan. 2027 – 30 juni 2027 · 181 dagar')
+    expect(cards.find((card) => card.includes('Utmaning 2'))).toContain('8 nov. 2026 – 8 maj 2027 · 182 dagar')
+  })
+
+  it('exports a duration-based challenge and restores it unchanged, next to older backups', async () => {
+    const blobs = captureDownloads()
+    const { services, repository } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await startFirstChallenge(user)
+    const created = (await repository.loadChallenge())!
+
+    await goTo(user, 'Inställningar')
+    await user.click(await screen.findByRole('button', { name: 'Exportera säkerhetskopia' }))
+    await waitFor(() => expect(blobs).toHaveLength(1))
+    const backup = await blobText(blobs[0])
+    expect(JSON.parse(backup).challenges[0].config).toEqual(created.config)
+
+    const target = setup()
+    await target.repository.restoreBackup(backup, { mode: 'replace', confirmReplace: true })
+    expect(await target.repository.loadChallenge(created.id)).toEqual(created)
+    await target.repository.restoreBackup(v1BackupJson(playedChallenge('older-file')), { mode: 'import-as-new' })
+    expect(await target.repository.listChallenges()).toHaveLength(2)
   })
 })
 
@@ -254,11 +395,12 @@ describe('several challenges', () => {
 
     await goTo(user, 'Kalender')
     expect(await screen.findByText('november 2026')).toBeTruthy()
-    expect(screen.getByText('juni 2027')).toBeTruthy()
+    expect(screen.getByText('maj 2027')).toBeTruthy()
+    expect(screen.queryByText('juni 2027')).toBeNull()
     expect(document.querySelectorAll('.day.confirmed')).toHaveLength(1)
     expect(document.querySelector('.day.today')).toBeTruthy()
     const undrawn = Array.from(document.querySelectorAll('.day.undrawn b'))
-    expect(undrawn.length).toBeGreaterThan(200)
+    expect(undrawn).toHaveLength(181)
     expect(undrawn.every((cell) => cell.textContent === '–')).toBe(true)
   })
 })
@@ -276,7 +418,7 @@ describe('dates, midnight and recovery', () => {
 
     expect(await screen.findByText('Planen har räknats om')).toBeTruthy()
     await screen.findByText('Dagens belopp väntar')
-    expect(norm(document.body.textContent)).toContain('DAG 2 AV 235')
+    expect(norm(document.body.textContent)).toContain('DAG 2 AV 182')
     expect(norm(document.querySelector('.balance-stats')?.textContent)).toContain('1 missad')
     const stored = (await repository.loadChallenge())!
     expect(stored.days[0].status).toBe('missed')

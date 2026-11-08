@@ -1,5 +1,5 @@
 import type { NewChallengeInput } from '../app/use-savings-app'
-import { CreateChallengeForm } from './ChallengesScreen'
+import { CreateChallengeForm } from './CreateChallengeForm'
 
 interface OnboardingProps {
   today: string
