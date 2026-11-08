@@ -8,11 +8,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // A new service worker takes over as soon as it is ready. This is safe for data: every write is an atomic
+      // transaction, and an older copy of the app that meets a newer database refuses to write (see OutdatedScreen).
       registerType: 'autoUpdate',
+      workbox: { cleanupOutdatedCaches: true },
       manifest: {
-        name: '50K Savings Challenge',
-        short_name: '50K Savings',
-        description: 'A calm daily savings challenge.',
+        name: '50K Sparutmaning',
+        short_name: 'Spar',
+        description: 'Ett lugnt, privat sparande – steg för steg.',
+        lang: 'sv',
         theme_color: '#0b1116',
         background_color: '#0b1116',
         display: 'standalone',

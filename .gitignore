@@ -30,3 +30,5 @@ tmp
 *.njsproj
 *.sln
 *.sw?
+
+.vitest/
