@@ -3,7 +3,10 @@ import { getDashboard } from '../app/savings-view'
 import type { ChallengeItem, NewChallengeInput } from '../app/use-savings-app'
 import { challengeStatusLabel, challengeTitle, originLabel } from '../i18n/describe'
 import { useI18n } from '../i18n/LanguageProvider'
+import type { CatchUpEntry } from '../domain/ledger'
+import type { Ledger } from '../persistence/ledger'
 import { CreateChallengeForm } from './CreateChallengeForm'
+import { PenaltyPotCard } from './ledger-views'
 
 interface ChallengesScreenProps {
   items: ChallengeItem[]
@@ -12,13 +15,16 @@ interface ChallengesScreenProps {
   onSwitch: (id: string) => void
   onCreate: (input: NewChallengeInput) => Promise<unknown>
   onRename: (id: string, name: string) => void
+  ledger?: Ledger
+  onPayPenalty?: (challengeId: string, amountOre: number) => void
 }
 
-export function ChallengesScreen({ items, activeId, today, onSwitch, onCreate, onRename }: ChallengesScreenProps) {
+export function ChallengesScreen({ items, activeId, today, onSwitch, onCreate, onRename, ledger, onPayPenalty }: ChallengesScreenProps) {
   const { t } = useI18n()
   const [creating, setCreating] = useState(false)
   const sorted = [...items].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const isFinished = (item: ChallengeItem) => getDashboard(item.challenge, today).status === 'finished'
+  const catchUpsOf = (id: string) => ledger?.catchUps.filter((entry) => entry.challengeId === id)
   const current = sorted.filter((item) => !isFinished(item))
   const history = sorted.filter(isFinished)
 
@@ -50,8 +56,9 @@ export function ChallengesScreen({ items, activeId, today, onSwitch, onCreate, o
         </button>
       )}
 
-      <ChallengeList title={t.challenges.current} items={current} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} />
-      <ChallengeList title={t.challenges.history} items={history} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} />
+      <ChallengeList title={t.challenges.current} items={current} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} catchUpsOf={catchUpsOf} />
+      <ChallengeList title={t.challenges.history} items={history} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} catchUpsOf={catchUpsOf} />
+      {ledger && <PenaltyPotCard ledger={ledger} items={items} detailed onPay={onPayPenalty} />}
     </section>
   )
 }
@@ -63,16 +70,17 @@ interface ChallengeListProps {
   today: string
   onSwitch: (id: string) => void
   onRename: (id: string, name: string) => void
+  catchUpsOf: (id: string) => CatchUpEntry[] | undefined
 }
 
-function ChallengeList({ title, items, activeId, today, onSwitch, onRename }: ChallengeListProps) {
+function ChallengeList({ title, items, activeId, today, onSwitch, onRename, catchUpsOf }: ChallengeListProps) {
   if (items.length === 0) return null
   return (
     <>
       <h3 className="list-heading">{title}</h3>
       <ul className="challenge-list">
         {items.map((item) => (
-          <ChallengeCard key={item.id} item={item} today={today} isActive={item.id === activeId} onSwitch={onSwitch} onRename={onRename} />
+          <ChallengeCard key={item.id} item={item} today={today} isActive={item.id === activeId} onSwitch={onSwitch} onRename={onRename} catchUps={catchUpsOf(item.id)} />
         ))}
       </ul>
     </>
@@ -85,14 +93,15 @@ interface ChallengeCardProps {
   isActive: boolean
   onSwitch: (id: string) => void
   onRename: (id: string, name: string) => void
+  catchUps?: CatchUpEntry[]
 }
 
-function ChallengeCard({ item, today, isActive, onSwitch, onRename }: ChallengeCardProps) {
+function ChallengeCard({ item, today, isActive, onSwitch, onRename, catchUps }: ChallengeCardProps) {
   const i18n = useI18n()
   const { t, fmt } = i18n
   const [renaming, setRenaming] = useState(false)
   const [draftName, setDraftName] = useState(item.name ?? '')
-  const dashboard = getDashboard(item.challenge, today)
+  const dashboard = getDashboard(item.challenge, today, catchUps)
   const title = challengeTitle(item.name, item.challenge.config, i18n)
   const origin = originLabel(item.origin, i18n)
 

@@ -5,7 +5,7 @@ import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
-import { configForDuration, createChallenge, type ChallengeConfig } from '../domain/challenge'
+import { configForDuration, createChallenge, dynamicBounds, type ChallengeConfig } from '../domain/challenge'
 import { createI18n } from '../i18n/i18n'
 import { LANGUAGE_STORAGE_KEY, type Language } from '../i18n/language'
 import { SavingsDatabase, SavingsRepository } from '../persistence/savings-repository'
@@ -247,13 +247,15 @@ describe('switching language never touches the savings data', () => {
     await repository.saveChallenge({ ...first, days: first.days.map((day, index) => (index === 0 ? { ...day, status: 'drawn' as const } : day)) })
     await repository.saveChallenge({ ...first, days: first.days.map((day, index) => (index === 0 ? { ...day, status: 'confirmed' as const } : day)) })
     await repository.setActiveChallenge('one')
-    const tablesBefore = await snapshotRawTables(name)
     const backupBefore = await repository.exportBackup(BACKUP_TIME)
     const challengesBefore = await repository.listChallenges()
 
     const u = user()
     render(<App services={services} />)
     await screen.findByText('Alfa')
+    // Opening the app records the day the penalty feature started (one additive settings row). The snapshot is taken
+    // after that first load, so it proves that only the language switching that follows changes nothing.
+    const tablesBefore = await snapshotRawTables(name)
     await goTo(u, 'Inställningar')
     for (const language of ['en', 'sv', 'en', 'sv', 'en'] as const) await chooseLanguage(u, language)
     await goTo(u, 'Calendar')
@@ -276,7 +278,7 @@ describe('switching language never touches the savings data', () => {
 
     expect(JSON.stringify(await snapshotRawTables(name))).not.toMatch(/language|spar\.language/i)
     expect(await repository.exportBackup(BACKUP_TIME)).not.toMatch(/language|spar\.language/i)
-    expect((await repository.database.appMeta.toArray()).map((row) => row.key).sort()).toEqual(['activeChallengeId', 'legacyMigration'])
+    expect((await repository.database.appMeta.toArray()).map((row) => row.key).sort()).toEqual(['activeChallengeId', 'legacyMigration', 'penaltiesStartDate'])
     expect(Object.keys(localStorage)).toEqual([LANGUAGE_STORAGE_KEY])
   })
 
@@ -354,7 +356,10 @@ describe('dates follow the language', () => {
     expect(summary).toContain('End date8 May 2027')
     expect(summary).toContain('Number of saving days182 days')
     expect(summary).toContain('Savings goalSEK 50,000')
-    expect(summary).toContain('Daily amountSEK 50 – SEK 500')
+    // A new challenge calculates its daily range from the target and the number of days (50,000 over 182 days).
+    const automatic = dynamicBounds(50_000, 182)
+    const { fmt: english } = createI18n('en')
+    expect(summary).toContain(norm(`Daily amount${english.sek(automatic.minimumSek)} – ${english.sek(automatic.maximumSek)}`))
     expect(screen.getAllByRole('radio').map((radio) => radio.textContent)).toContain('Until New Year')
   })
 
@@ -438,6 +443,9 @@ async function walkEveryScreen(language: Language) {
   await u.click(screen.getByRole('button', { name: new RegExp(t.challenges.newButton) }))
   await screen.findByText(t.form.legend, { selector: 'legend' })
   expectOnly(language, 'new challenge form')
+  // The automatic range is audited above; manual limits are where the period can be too short, so switch to them.
+  await u.click(screen.getByRole('checkbox', { name: t.form.autoLabel }))
+  expectOnly(language, 'new challenge form: manual limits')
   await u.click(screen.getByRole('radio', { name: t.form.duration.newYear }))
   await screen.findByText(/\S/, { selector: '.field-error' })
   expectOnly(language, 'new challenge form: target does not fit the period')
@@ -494,6 +502,7 @@ describe('every screen is fully translated (automatic audit of all visible text 
     render(<App services={services} />)
     await screen.findByText(t.onboarding.cardTitle)
     expectOnly(language, 'welcome')
+    await u.click(screen.getByRole('checkbox', { name: t.form.autoLabel }))
     const target = screen.getByLabelText(t.form.targetLabel)
     await u.clear(target)
     await u.type(target, 'abc')

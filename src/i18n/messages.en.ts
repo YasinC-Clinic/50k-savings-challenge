@@ -132,6 +132,12 @@ export const en: Messages = {
     preview: (average: string, min: string, max: string, target: string) =>
       `About ${average} per day on average. Each day gets a random amount between ${min} and ${max}, and the total is exactly ${target}.`,
     note: 'The app is not connected to any bank and never moves money. You draw an amount, transfer it yourself through your bank and then confirm in the app. Your other challenges are not affected, and the end date is never extended automatically.',
+    autoLabel: 'Calculate daily amounts automatically',
+    autoHint: (min: string, max: string) =>
+      `The app works out the range from the target and the number of days: ${min} – ${max} per day. The range adapts as you go, and the total still adds up to exactly the target.`,
+    autoExplain: 'If you miss a day, the rest is spread out again so the target can still be reached in time. Turn off to choose your own limits.',
+    shockLabel: 'Shock Days (optional)',
+    shockHint: 'On an occasional day you get an unusually high amount. You can accept it or draw again, as many times as you like.',
     cancel: 'Cancel',
     defaultName: (number: number) => `Challenge ${number}`,
     duration: {
@@ -332,6 +338,68 @@ export const en: Messages = {
     importedOne: 'The challenge was imported as a new challenge.',
     importedMany: (count: number) => `${count} challenges were imported as new.`,
     dateChanged: 'The date has changed. The app has been updated – try again.',
+    shockAccepted: 'The Shock Day amount is drawn. It only counts as saved once you confirm.',
+    catchUpConfirmed: 'The missed day is caught up and confirmed.',
+    penaltyPaid: 'The penalty payment is confirmed.',
+  },
+
+  ledger: {
+    shock: {
+      badge: 'SHOCK DAY',
+      title: 'Shock Day!',
+      body: (min: string, max: string) =>
+        `Today is a Shock Day. The amount is higher than usual, between ${min} and ${max}. You decide whether to take it.`,
+      amountLabel: "Today's Shock Day amount",
+      accept: 'ACCEPT',
+      drawAgain: 'NO — DRAW AGAIN',
+      note: 'You can draw again as many times as you like, at no cost. Nothing is saved until you confirm the amount.',
+      pendingLabel: 'Shock Day amount (not saved yet)',
+    },
+    catchUp: {
+      bannerTitle: (count: number) => (count === 1 ? 'One missed day to catch up' : `${count} missed days to catch up`),
+      bannerBody: 'You can catch up each missed day, one at a time. Each day gets its own amount, which only counts as saved once you confirm.',
+      start: 'Catch up missed days',
+      resume: 'Continue catching up',
+      dialogTitle: 'Catch up a missed day',
+      progress: (current: number, total: number) => `Day ${current} of ${total}`,
+      forDate: (date: string) => `Missed day: ${date}`,
+      amountLabel: 'Amount for this day',
+      confirm: 'Confirm saving',
+      pause: 'Pause',
+      paused: 'Paused. Anything you have not confirmed does not count as saved, and you can continue whenever you like.',
+      noRoom: 'There is no room left to catch up these days before the end date. The end date is never moved.',
+      done: 'All missed days are caught up.',
+      noShock: 'No Shock Days while catching up.',
+    },
+    penalty: {
+      potTitle: 'Penalty pot',
+      potIntro:
+        'Every missed day adds a 3% penalty on what is still missing from the target. Penalties are tracked separately and never count towards your savings target. The app never pays anything automatically.',
+      accrued: 'Accrued',
+      paid: 'Paid (confirmed by you)',
+      outstanding: 'Still to pay',
+      total: 'Total, all challenges',
+      perChallenge: 'Per challenge',
+      removedChallenge: 'Removed challenge',
+      none: 'No penalties yet.',
+      markPaid: 'Confirm payment',
+      markPaidTitle: 'Confirm a paid penalty',
+      markPaidBody: (amount: string) => `Confirm that you yourself paid ${amount} outside the app. The app does not move any money.`,
+      markPaidConfirm: 'Yes, I have paid',
+    },
+    summary: {
+      title: 'Summary',
+      target: 'Savings target',
+      saved: 'Saved (confirmed)',
+      missedDays: 'Missed days',
+      accrued: 'Penalties, accrued',
+      paid: 'Penalties, paid',
+      outstanding: 'Penalties, still to pay',
+      pot: 'Penalty pot, all challenges',
+      combinedTitle: 'Combined overview (information only)',
+      combinedBody: (saved: string, penalties: string, total: string) =>
+        `Saved ${saved} plus penalties ${penalties} makes ${total}. The savings target is still only the savings.`,
+    },
   },
 
   files: {

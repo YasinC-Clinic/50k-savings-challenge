@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CHALLENGE_LIMITS, DEFAULT_DURATION_MONTHS, DURATION_OPTIONS, NEW_YEAR_DURATION } from '../domain/challenge'
+import { CHALLENGE_LIMITS, DEFAULT_DURATION_MONTHS, DURATION_OPTIONS, NEW_YEAR_DURATION, dynamicBounds } from '../domain/challenge'
 import { stockholmDateKey } from '../app/savings-view'
 import { createI18n } from '../i18n/i18n'
 import { defaultForm, durationLabel, parseAmount, parseTarget, planFor, validateForm, type ChallengeForm } from './create-challenge-form'
@@ -13,12 +13,15 @@ const form = (overrides: Partial<ChallengeForm> = {}): ChallengeForm => ({
   duration: 6,
   minDaily: '50',
   maxDaily: '500',
+  // The original tests cover manual limits; automatic ranges have their own tests below.
+  autoRange: false,
+  shockDays: false,
   ...overrides,
 })
 
 describe('defaults', () => {
   it('selects six months, 50,000 SEK and 50-500 SEK per day', () => {
-    expect(defaultForm(0, sv)).toEqual({ name: 'Utmaning 1', target: '50000', duration: 6, minDaily: '50', maxDaily: '500' })
+    expect(defaultForm(0, sv)).toEqual({ name: 'Utmaning 1', target: '50000', duration: 6, minDaily: '50', maxDaily: '500', autoRange: true, shockDays: false })
     expect(defaultForm(0, sv).duration).toBe(DEFAULT_DURATION_MONTHS)
   })
 
@@ -246,5 +249,50 @@ describe('parseAmount', () => {
     expect(parseAmount('50,000')).toBeNull()
     expect(parseAmount('')).toBeNull()
     expect(parseTarget).toBe(parseAmount)
+  })
+})
+
+describe('automatic daily range', () => {
+  it('is on by default, derives the limits from target and days, and flags the challenge as dynamic', () => {
+    const result = validateForm(form({ autoRange: true }), TODAY, sv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const days = planFor(TODAY, 6).dayCount
+    expect(result.value.config).toMatchObject({ targetSek: 50_000, dynamicRange: true, initialMinimumSek: dynamicBounds(50_000, days).minimumSek, preferredMaximumSek: dynamicBounds(50_000, days).maximumSek })
+    expect(result.value.config.shockDays).toBeUndefined()
+  })
+
+  it('ignores the typed limits while on, even when they would be invalid', () => {
+    const result = validateForm(form({ autoRange: true, minDaily: 'abc', maxDaily: '0' }), TODAY, sv)
+    expect(result.ok).toBe(true)
+  })
+
+  it('still validates the typed limits when off, and leaves the challenge without the dynamic flag', () => {
+    const invalid = validateForm(form({ autoRange: false, minDaily: '600', maxDaily: '500' }), TODAY, sv)
+    expect(invalid.ok).toBe(false)
+    const valid = validateForm(form({ autoRange: false }), TODAY, sv)
+    expect(valid.ok && valid.value.config.dynamicRange).toBeFalsy()
+  })
+
+  it('accepts a low target (at least 1 kr per day) and rejects one below the number of days', () => {
+    const days = planFor(TODAY, 1).dayCount
+    expect(validateForm(form({ autoRange: true, duration: 1, target: String(days) }), TODAY, sv).ok).toBe(true)
+    const tooLow = validateForm(form({ autoRange: true, duration: 1, target: String(days - 1) }), TODAY, sv)
+    expect(tooLow.ok).toBe(false)
+    if (!tooLow.ok) expect(tooLow.errors.target).toMatch(/för lågt/)
+  })
+
+  it('rejects a target whose automatic daily maximum would exceed the supported limit', () => {
+    const result = validateForm(form({ autoRange: true, duration: 1, target: String(CHALLENGE_LIMITS.maxTargetSek) }), TODAY, sv)
+    expect(result.ok).toBe(false)
+  })
+
+  it('sets the Shock Day flag only when asked, with or without the automatic range', () => {
+    for (const autoRange of [true, false]) {
+      const on = validateForm(form({ autoRange, shockDays: true }), TODAY, sv)
+      const off = validateForm(form({ autoRange, shockDays: false }), TODAY, sv)
+      expect(on.ok && on.value.config.shockDays).toBe(true)
+      expect(off.ok && off.value.config.shockDays).toBeUndefined()
+    }
   })
 })

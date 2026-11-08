@@ -243,8 +243,18 @@ describe('L. migration identity, schema and atomic rollback', () => {
     const repository = openRepository(name)
     await repository.loadChallenge()
     repository.database.close()
-    expect(await storedVersion(name)).toBe(20)
-    expect(Object.keys(await snapshotRawTables(name)).sort()).toEqual(['appMeta', 'challengeEntries', 'challengeRecords', 'challenges', 'dailyEntries'])
+    // Schema version 3 (IndexedDB version 30) only ADDS the three ledger tables; the v1 and v2 tables are all still here.
+    expect(await storedVersion(name)).toBe(30)
+    expect(Object.keys(await snapshotRawTables(name)).sort()).toEqual([
+      'appMeta',
+      'catchUps',
+      'challengeEntries',
+      'challengeRecords',
+      'challenges',
+      'dailyEntries',
+      'penalties',
+      'penaltyPayments',
+    ])
   })
 
   it('stores one set of entries per challenge, keyed by challenge id and date', async () => {

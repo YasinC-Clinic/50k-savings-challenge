@@ -150,6 +150,7 @@ describe('creating a challenge and the daily draw', () => {
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
 
     const target = screen.getByLabelText('Sparmål (kr)')
     await user.clear(target)
@@ -170,6 +171,7 @@ describe('creating a challenge and the daily draw', () => {
     const { services } = setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
 
     expect(screen.getByText('Hur länge vill du spara?', { selector: 'legend' })).toBeTruthy()
     const radios = screen.getAllByRole('radio')
@@ -192,8 +194,17 @@ describe('creating a challenge and the daily draw', () => {
     const { services } = setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     const labels = Array.from(document.querySelectorAll('.challenge-form label, .challenge-form legend')).map((node) => norm(node.textContent))
-    expect(labels).toEqual(['Namn (valfritt)', 'Sparmål (kr)', 'Hur länge vill du spara?', 'Lägsta dagsbelopp (kr)', 'Högsta dagsbelopp (kr)'])
+    expect(labels).toEqual([
+      'Namn (valfritt)',
+      'Sparmål (kr)',
+      'Hur länge vill du spara?',
+      'Beräkna dagsbelopp automatiskt',
+      'Lägsta dagsbelopp (kr)',
+      'Högsta dagsbelopp (kr)',
+      '⚡ Chockdagar (valfritt)',
+    ])
     expect(norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)).toMatch(/Startdatum.*Slutdatum.*Antal spardagar.*Sparmål.*Dagsbelopp/)
   })
 
@@ -202,6 +213,7 @@ describe('creating a challenge and the daily draw', () => {
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     await user.click(screen.getByRole('radio', { name: 'Till nyår' }))
     for (const [label, value] of [['Lägsta dagsbelopp (kr)', '100'], ['Högsta dagsbelopp (kr)', '1500']] as const) {
       const field = screen.getByLabelText(label)
@@ -229,6 +241,7 @@ describe('creating a challenge and the daily draw', () => {
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     await user.click(screen.getByRole('radio', { name: 'Till nyår' }))
     expect(await screen.findByText(/Målet är för högt för Till nyår \(54 dagar\)\. Högst 27.000/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Starta utmaningen' })).toHaveProperty('disabled', true)
@@ -240,6 +253,7 @@ describe('creating a challenge and the daily draw', () => {
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     await user.click(screen.getByRole('radio', { name: '1 månad' }))
     for (const [label, value] of [['Sparmål (kr)', '8000'], ['Lägsta dagsbelopp (kr)', '200'], ['Högsta dagsbelopp (kr)', '300']] as const) {
       const field = screen.getByLabelText(label)
@@ -268,6 +282,7 @@ describe('creating a challenge and the daily draw', () => {
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     for (const [label, value] of [['Lägsta dagsbelopp (kr)', minimum], ['Högsta dagsbelopp (kr)', maximum]] as const) {
       const field = screen.getByLabelText(label)
       await user.clear(field)
@@ -290,6 +305,7 @@ describe('creating a challenge and the daily draw', () => {
 
     await goTo(user, 'Utmaningar')
     await user.click(await screen.findByRole('button', { name: /Ny utmaning/ }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     await user.click(screen.getByRole('radio', { name: '1 månad' }))
     for (const [label, value] of [['Sparmål (kr)', '8000'], ['Lägsta dagsbelopp (kr)', '200'], ['Högsta dagsbelopp (kr)', '300']] as const) {
       const field = screen.getByLabelText(label)
@@ -365,6 +381,7 @@ describe('creating a challenge and the daily draw', () => {
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     const submit = screen.getByRole('button', { name: 'Starta utmaningen' })
 
     await user.click(screen.getByRole('radio', { name: '3 månader' }))
@@ -391,6 +408,7 @@ describe('creating a challenge and the daily draw', () => {
     const user = userEvent.setup()
     render(<App services={services} />)
     await screen.findByText('Skapa din första utmaning')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beräkna dagsbelopp automatiskt' }))
     await user.click(screen.getByRole('radio', { name: months === 1 ? '1 månad' : `${months} månader` }))
     const target = screen.getByLabelText('Sparmål (kr)')
     await user.clear(target)

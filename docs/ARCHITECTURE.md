@@ -141,3 +141,48 @@ turns each into plain language in the selected language (`src/i18n/describe.ts`)
 - No automatic backups. No deletion of challenges (history is preserved by design).
 - The service worker and installation on iPhone have been built to standard PWA practice but have not been verified on a physical iPhone.
 - Challenges that are not active are brought up to date (missed days, recovery) only when they become active.
+
+## Dynamic range, Shock Days, catch-up and the penalty pot
+
+These features live in `src/domain/ledger.ts` (pure rules) and `src/persistence/ledger.ts` plus new repository methods
+(storage). The ordinary savings (`Challenge`) are never changed by penalties.
+
+### Storage (schema v3, purely additive)
+New tables `penalties [challengeId+date]`, `penaltyPayments id`, `catchUps [challengeId+date]` and the settings row
+`penaltiesStartDate`. Schema v1 and v2 tables are never modified, so a v2 database upgrades without touching any row.
+Backups stay `version: 2` and gain an optional `ledger` section; files without it (older backups) still import, and a
+restore without a ledger leaves the device's ledger alone. v1 files still import as a new challenge.
+
+### Dynamic daily range (`dynamicRange`)
+Opt-in per challenge, on by default for new challenges, absent on existing ones (which keep their fixed limits).
+`dynamicBounds(needed, days)`: minimum `max(1, floor(0.4 * average))`, maximum `max(minimum, ceil(1.8 * average))`, where
+average = needed / days. After missed days the range is derived again from what is still needed and the days that remain,
+so the target stays exactly reachable. Manual min/max remain available (toggle off).
+
+### Shock Days (`shockDays`, opt-in)
+About one day in ten, derived deterministically from the challenge seed, never closer than 8 days apart, never in the
+first 2 or last 3 days. The offered amount is 125%-250% of the normal maximum, capped so every remaining day keeps its
+minimum. It is a proposal only: nothing is stored until ACCEPT, "NO - DRAW AGAIN" is free and never repeats the previous
+amount. An accepted Shock Day becomes a normal *drawn* day and still needs the usual confirmation. Never offered while a
+catch-up session is open or paused.
+
+### Catch-up
+Each missed date is offered exactly once (Europe/Stockholm dates), oldest first, with its own amount within the
+challenge's range. The amount is stored as `drawn` (so it survives pause and reload) and counts as saved only when
+confirmed; upcoming undrawn days are re-spread in the same transaction so the total stays exact. The end date is never
+extended: with no days left there is no catch-up.
+
+### Penalties
+3% per missed day on a base that shrinks by each penalty, in integer öre, rounded half up:
+`penalty = floor((base * 3 + 50) / 100)`. Example (target 2,000, saved 200): 54.00 + 52.38 + 50.81 = 157.19 SEK.
+
+Edge-case rules:
+- The first base is what still remains of the target (target - confirmed savings, including confirmed catch-ups).
+- Later base = min(previous base - previous penalty, remaining target now), so the base never exceeds what is missing.
+- A date carries at most one penalty (keyed by challenge + date); accrual is idempotent, also across tabs and reloads.
+- No penalty once the target is reached, and none when the remaining target is 0.
+- Only days missed on or after the day the feature started on the device (`penaltiesStartDate`) are penalised: history
+  from before the update is never charged retroactively.
+- Penalties never count towards the target, never reduce it, and are never paid automatically. The person confirms a
+  payment they made themselves; it can never exceed what is outstanding.
+- The pot is permanent: it spans all challenges and is shown per challenge (accrued, paid, outstanding).

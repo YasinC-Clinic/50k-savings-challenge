@@ -95,6 +95,18 @@ function AppContent({ services }: AppProps) {
             onDraw={() => void app.draw()}
             onConfirm={() => void app.confirm()}
             onOpenChallenges={() => setTab('challenges')}
+            extras={{
+              ledger: app.ledger,
+              items: app.items,
+              catchUps: app.activeCatchUps,
+              shock: app.shock,
+              catchUp: app.catchUp,
+              onAcceptShock: () => void app.acceptShock(),
+              onDrawShockAgain: app.drawShockAgain,
+              onStartCatchUp: () => void app.startCatchUp(),
+              onConfirmCatchUp: () => void app.confirmCatchUp(),
+              onPauseCatchUp: app.pauseCatchUp,
+            }}
           />
         ) : (
           <Onboarding
@@ -119,6 +131,8 @@ function AppContent({ services }: AppProps) {
             return created
           }}
           onRename={(id, name) => void app.renameChallenge(id, name)}
+          ledger={app.ledger}
+          onPayPenalty={(challengeId, amountOre) => void app.payPenalty(challengeId, amountOre)}
         />
       )}
       {tab === 'settings' && (

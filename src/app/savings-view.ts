@@ -1,4 +1,5 @@
 import type { Challenge, DayStatus } from '../domain/challenge'
+import type { CatchUpEntry } from '../domain/ledger'
 
 /** What the plan for the remaining days looks like, derived from stored data (nothing extra is persisted). */
 export type PlanStatus =
@@ -53,10 +54,11 @@ export function getChallengeStatus(challenge: Challenge, today: string): Dashboa
   return 'active'
 }
 
-export function getDashboard(challenge: Challenge, today: string): DashboardView {
+export function getDashboard(challenge: Challenge, today: string, catchUps: CatchUpEntry[] = []): DashboardView {
   const { targetSek, startDate, endDate } = challenge.config
   const confirmed = challenge.days.filter((day) => day.status === 'confirmed')
-  const savedSek = sumOf(confirmed)
+  // Confirmed catch-ups are real savings for the missed days; drawn ones are pending and never counted.
+  const savedSek = sumOf(confirmed) + sumOf(catchUps.filter((entry) => entry.status === 'confirmed'))
   const status = getChallengeStatus(challenge, today)
   const todayIndex = challenge.days.findIndex((day) => day.date === today)
 
@@ -66,7 +68,7 @@ export function getDashboard(challenge: Challenge, today: string): DashboardView
     endDate,
     savedSek,
     remainingSek: Math.max(0, targetSek - savedSek),
-    pendingSek: sumOf(challenge.days.filter((day) => day.status === 'drawn')),
+    pendingSek: sumOf(challenge.days.filter((day) => day.status === 'drawn')) + sumOf(catchUps.filter((entry) => entry.status === 'drawn')),
     progressPercent: Math.min(100, Math.round((savedSek / targetSek) * 1000) / 10),
     confirmedDays: confirmed.length,
     daysCompleted: confirmed.length,
@@ -75,7 +77,7 @@ export function getDashboard(challenge: Challenge, today: string): DashboardView
     dayNumber: todayIndex >= 0 ? todayIndex + 1 : null,
     daysRemaining: remainingDays(challenge, today, status),
     status,
-    plan: getPlanStatus(challenge, today, status, savedSek),
+    plan: getPlanStatus(challenge, today, status, savedSek, sumOf(catchUps)),
   }
 }
 
@@ -85,12 +87,12 @@ function remainingDays(challenge: Challenge, today: string, status: DashboardVie
   return challenge.days.filter((day) => day.date >= today).length
 }
 
-function getPlanStatus(challenge: Challenge, today: string, status: DashboardView['status'], savedSek: number): PlanStatus {
+function getPlanStatus(challenge: Challenge, today: string, status: DashboardView['status'], savedSek: number, catchUpSek = 0): PlanStatus {
   const { targetSek, preferredMaximumSek } = challenge.config
   if (savedSek >= targetSek) return { kind: 'completed' }
   if (status === 'finished') return { kind: 'ended-short', shortfallSek: targetSek - savedSek }
 
-  const livePlanSek = sumOf(challenge.days.filter((day) => day.status !== 'missed'))
+  const livePlanSek = sumOf(challenge.days.filter((day) => day.status !== 'missed')) + catchUpSek
   if (livePlanSek < targetSek) return { kind: 'unreachable', unplannedSek: targetSek - livePlanSek }
 
   const upcomingUndrawn = challenge.days.filter((day) => day.status === 'undrawn' && day.date >= today)

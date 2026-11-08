@@ -74,6 +74,10 @@ export function parseConfig(value: unknown): ChallengeConfig {
     throw new InvalidChallengeError('Challenge amounts are invalid')
   }
   const config: ChallengeConfig = { targetSek, startDate, endDate, initialMinimumSek, preferredMaximumSek }
+  if (value.dynamicRange !== undefined && typeof value.dynamicRange !== 'boolean') throw new InvalidChallengeError('Challenge range setting is invalid')
+  if (value.dynamicRange === true) config.dynamicRange = true
+  if (value.shockDays !== undefined && typeof value.shockDays !== 'boolean') throw new InvalidChallengeError('Challenge Shock Day setting is invalid')
+  if (value.shockDays === true) config.shockDays = true
   datesFor(config)
   return config
 }
@@ -94,7 +98,9 @@ function parseDay(value: unknown, expectedDate: string, config: ChallengeConfig)
   if (typeof amount !== 'number' || !Number.isSafeInteger(amount)) {
     throw new InvalidChallengeError('Challenge contains an invalid daily entry')
   }
-  if (amount < config.initialMinimumSek || amount > config.targetSek) {
+  // A dynamic-range challenge re-derives its range as it progresses, so its amounts may fall below the initial minimum.
+  const floor = config.dynamicRange === true ? 1 : config.initialMinimumSek
+  if (amount < floor || amount > config.targetSek) {
     throw new InvalidChallengeError('Challenge contains an invalid daily entry')
   }
   if (typeof status !== 'string' || !DAY_STATUSES.has(status)) {
@@ -140,6 +146,8 @@ export function sameConfig(a: ChallengeConfig, b: ChallengeConfig): boolean {
     a.startDate === b.startDate &&
     a.endDate === b.endDate &&
     a.initialMinimumSek === b.initialMinimumSek &&
-    a.preferredMaximumSek === b.preferredMaximumSek
+    a.preferredMaximumSek === b.preferredMaximumSek &&
+    (a.dynamicRange === true) === (b.dynamicRange === true) &&
+    (a.shockDays === true) === (b.shockDays === true)
   )
 }

@@ -3,6 +3,8 @@ export type Locale = 'sv-SE' | 'en-GB'
 export interface Formatters {
   /** Swedish "50 000 kr", English "SEK 50,000". The currency is SEK in both languages. */
   sek: (amount: number) => string
+  /** Penalties are exact to the öre: Swedish "157,19 kr", English "SEK 157.19". Takes integer öre. */
+  ore: (amountOre: number) => string
   /** Swedish "8 nov. 2026", English "8 Nov 2026". */
   date: (dateKey: string) => string
   /** Swedish "söndag 8 november", English "Sunday 8 November". */
@@ -23,6 +25,7 @@ function toUtcNoon(dateKey: string): Date {
 /** Formatting only. Stored dates and amounts are never converted, so switching language cannot change any data. */
 export function createFormatters(locale: Locale): Formatters {
   const currency = new Intl.NumberFormat(locale, { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 })
+  const exactCurrency = new Intl.NumberFormat(locale, { style: 'currency', currency: 'SEK', minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const shortDate = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
   const longDay = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
   const monthName = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
@@ -32,6 +35,8 @@ export function createFormatters(locale: Locale): Formatters {
   const date = (dateKey: string) => shortDate.format(toUtcNoon(dateKey))
   return {
     sek: (amount) => currency.format(amount),
+    // Display only: integer öre are split into whole kronor and öre, so no floating point reaches the screen.
+    ore: (amountOre) => exactCurrency.format(Math.trunc(amountOre / 100) + (amountOre % 100) / 100),
     date,
     dayLong: (dateKey) => longDay.format(toUtcNoon(dateKey)),
     range: (startDate, endDate) => `${date(startDate)} – ${date(endDate)}`,

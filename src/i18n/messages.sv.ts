@@ -134,6 +134,12 @@ export const sv = {
     preview: (average: string, min: string, max: string, target: string) =>
       `Cirka ${average} per dag i snitt. Varje dag slumpas ett belopp mellan ${min} och ${max}, och summan blir exakt ${target}.`,
     note: 'Appen är inte kopplad till någon bank och flyttar aldrig pengar. Du drar ett belopp, för själv över det via din bank och bekräftar sedan i appen. Dina andra utmaningar påverkas inte, och slutdatumet flyttas aldrig automatiskt.',
+    autoLabel: 'Beräkna dagsbelopp automatiskt',
+    autoHint: (min: string, max: string) =>
+      `Appen räknar ut spannet från målet och antalet dagar: ${min} – ${max} per dag. Spannet anpassas efter hur det går, och summan blir fortfarande exakt målet.`,
+    autoExplain: 'Missar du en dag fördelas resten om så att målet går att nå i tid. Stäng av för att välja egna gränser.',
+    shockLabel: 'Chockdagar (valfritt)',
+    shockHint: 'Någon enstaka dag får du ett ovanligt högt belopp. Du kan acceptera det eller dra om, så många gånger du vill.',
     cancel: 'Avbryt',
     defaultName: (number: number) => `Utmaning ${number}`,
     duration: {
@@ -334,6 +340,68 @@ export const sv = {
     importedOne: 'Utmaningen är importerad som en ny utmaning.',
     importedMany: (count: number) => `${count} utmaningar är importerade som nya.`,
     dateChanged: 'Datumet har ändrats. Appen har uppdaterats – försök igen.',
+    shockAccepted: 'Chockbeloppet är draget. Det räknas som sparat först när du bekräftar.',
+    catchUpConfirmed: 'Den missade dagen är inhämtad och bekräftad.',
+    penaltyPaid: 'Betalningen av straffavgiften är bekräftad.',
+  },
+
+  ledger: {
+    shock: {
+      badge: 'CHOCKDAG',
+      title: 'Chockdag!',
+      body: (min: string, max: string) =>
+        `Idag är en chockdag. Beloppet ligger högre än vanligt, mellan ${min} och ${max}. Du bestämmer om du tar det.`,
+      amountLabel: 'Dagens chockbelopp',
+      accept: 'ACCEPTERA',
+      drawAgain: 'NEJ — DRA IGEN',
+      note: 'Du kan dra om hur många gånger du vill, utan kostnad. Inget sparas förrän du har bekräftat beloppet.',
+      pendingLabel: 'Chockbelopp (inte sparat än)',
+    },
+    catchUp: {
+      bannerTitle: (count: number) => (count === 1 ? 'En missad dag att ta igen' : `${count} missade dagar att ta igen`),
+      bannerBody: 'Du kan ta igen varje missad dag, en i taget. Varje dag får ett eget belopp som räknas som sparat först när du bekräftar.',
+      start: 'Ta igen missade dagar',
+      resume: 'Fortsätt ta igen',
+      dialogTitle: 'Ta igen en missad dag',
+      progress: (current: number, total: number) => `Dag ${current} av ${total}`,
+      forDate: (date: string) => `Missad dag: ${date}`,
+      amountLabel: 'Belopp för den här dagen',
+      confirm: 'Bekräfta sparandet',
+      pause: 'Pausa',
+      paused: 'Pausat. Det du inte har bekräftat räknas inte som sparat, och du kan fortsätta när du vill.',
+      noRoom: 'Det finns inget utrymme kvar att ta igen dagarna före slutdatumet. Slutdatumet flyttas aldrig.',
+      done: 'Alla missade dagar är inhämtade.',
+      noShock: 'Inga chockdagar under inhämtning.',
+    },
+    penalty: {
+      potTitle: 'Straffpott',
+      potIntro:
+        'Varje missad dag ger 3 % straffavgift på det som återstår av målet. Avgiften räknas separat och påverkar aldrig ditt sparmål. Appen betalar aldrig något automatiskt.',
+      accrued: 'Upplupet',
+      paid: 'Betalt (bekräftat av dig)',
+      outstanding: 'Kvar att betala',
+      total: 'Totalt, alla utmaningar',
+      perChallenge: 'Per utmaning',
+      removedChallenge: 'Borttagen utmaning',
+      none: 'Inga straffavgifter än.',
+      markPaid: 'Bekräfta betalning',
+      markPaidTitle: 'Bekräfta betald straffavgift',
+      markPaidBody: (amount: string) => `Bekräfta att du själv har betalat ${amount} utanför appen. Appen flyttar inga pengar.`,
+      markPaidConfirm: 'Ja, jag har betalat',
+    },
+    summary: {
+      title: 'Sammanfattning',
+      target: 'Sparmål',
+      saved: 'Sparat (bekräftat)',
+      missedDays: 'Missade dagar',
+      accrued: 'Straffavgifter, upplupna',
+      paid: 'Straffavgifter, betalda',
+      outstanding: 'Straffavgifter, kvar att betala',
+      pot: 'Straffpott, alla utmaningar',
+      combinedTitle: 'Samlad översikt (endast information)',
+      combinedBody: (saved: string, penalties: string, total: string) =>
+        `Sparat ${saved} plus straffavgifter ${penalties} blir ${total}. Sparmålet är fortfarande bara sparandet.`,
+    },
   },
 
   files: {

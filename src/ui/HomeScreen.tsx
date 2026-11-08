@@ -4,7 +4,25 @@ import type { ChallengeItem, RecoveryNoticeData } from '../app/use-savings-app'
 import type { ChallengeDay } from '../domain/challenge'
 import { challengeStatusLabel, challengeTitle, planNotice, recoveryNotice, type Notice } from '../i18n/describe'
 import { useI18n } from '../i18n/LanguageProvider'
+import type { CatchUpEntry } from '../domain/ledger'
+import type { Ledger } from '../persistence/ledger'
+import type { SavingsApp } from '../app/use-savings-app'
 import { ConfirmDialog } from './ConfirmDialog'
+import { CatchUpBanner, CatchUpDialog, CompletionSummary, PenaltyPotCard, ShockDayCard } from './ledger-views'
+
+/** Everything the Shock Day, catch-up and penalty features need on the home screen. */
+export interface LedgerExtras {
+  ledger: Ledger
+  items: ChallengeItem[]
+  catchUps: CatchUpEntry[]
+  shock: SavingsApp['shock']
+  catchUp: SavingsApp['catchUp']
+  onAcceptShock: () => void
+  onDrawShockAgain: () => void
+  onStartCatchUp: () => void
+  onConfirmCatchUp: () => void
+  onPauseCatchUp: () => void
+}
 
 interface HomeScreenProps {
   item: ChallengeItem
@@ -14,6 +32,7 @@ interface HomeScreenProps {
   onDraw: () => void
   onConfirm: () => void
   onOpenChallenges: () => void
+  extras?: LedgerExtras
 }
 
 export function NoticeCard({ notice, onDismiss }: { notice: Notice; onDismiss?: () => void }) {
@@ -33,12 +52,12 @@ export function NoticeCard({ notice, onDismiss }: { notice: Notice; onDismiss?: 
   )
 }
 
-export function HomeScreen({ item, today, recovery, onDismissRecovery, onDraw, onConfirm, onOpenChallenges }: HomeScreenProps) {
+export function HomeScreen({ item, today, recovery, onDismissRecovery, onDraw, onConfirm, onOpenChallenges, extras }: HomeScreenProps) {
   const i18n = useI18n()
   const { t, fmt } = i18n
   const [confirming, setConfirming] = useState(false)
   const { challenge } = item
-  const dashboard = getDashboard(challenge, today)
+  const dashboard = getDashboard(challenge, today, extras?.catchUps)
   const todayEntry = challenge.days.find((day) => day.date === today) ?? null
   const plan = planNotice(dashboard.plan, challenge.config, i18n)
 
@@ -60,8 +79,21 @@ export function HomeScreen({ item, today, recovery, onDismissRecovery, onDraw, o
 
       {recovery && <NoticeCard notice={recoveryNotice(recovery.recovery, recovery.config, i18n)} onDismiss={onDismissRecovery} />}
       {plan && <NoticeCard notice={plan} />}
+      {extras && <CatchUpBanner catchUp={extras.catchUp} onStart={extras.onStartCatchUp} />}
 
-      <DailyCard dashboard={dashboard} today={today} entry={todayEntry} onDraw={onDraw} onAskConfirm={() => setConfirming(true)} />
+      {extras?.shock && dashboard.status === 'active' && todayEntry?.status === 'undrawn' ? (
+        <ShockDayCard shock={extras.shock} onAccept={extras.onAcceptShock} onDrawAgain={extras.onDrawShockAgain} />
+      ) : (
+        <DailyCard dashboard={dashboard} today={today} entry={todayEntry} onDraw={onDraw} onAskConfirm={() => setConfirming(true)} />
+      )}
+
+      {extras && (
+        <>
+          <CompletionSummary item={item} ledger={extras.ledger} finished={dashboard.status === 'finished'} />
+          <PenaltyPotCard ledger={extras.ledger} items={extras.items} detailed={false} />
+          <CatchUpDialog catchUp={extras.catchUp} onConfirm={extras.onConfirmCatchUp} onPause={extras.onPauseCatchUp} />
+        </>
+      )}
 
       {confirming && todayEntry && (
         <ConfirmDialog
