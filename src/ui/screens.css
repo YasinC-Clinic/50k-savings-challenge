@@ -1,0 +1,487 @@
+/* Styles for the multi-challenge screens. The base look (tokens, cards, daily card) lives in App.css. */
+
+.challenge-title {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 9vw, 3rem);
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.challenge-intro .link-button {
+  margin-top: 1rem;
+}
+
+.status-dot.warning {
+  background: #ef8e83;
+  box-shadow: 0 0 0 0.25rem rgba(239, 142, 131, 0.14);
+}
+
+.link-button {
+  min-height: 2.75rem;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: var(--gold-light);
+  font: inherit;
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.link-button.centered {
+  display: block;
+  margin: 0.5rem auto 0;
+}
+
+.icon-button {
+  align-self: flex-start;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1.3rem;
+}
+
+/* Notices (plan updates, recovery, completion) */
+.notice {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  border-left: 3px solid var(--gold-light);
+  border-radius: 0.8rem;
+  background: var(--gold-glow);
+  font-size: 0.83rem;
+}
+
+.notice p {
+  margin-top: 0.3rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.notice.danger {
+  border-color: #ef8e83;
+  background: rgba(239, 142, 131, 0.1);
+}
+
+.notice.info {
+  border-color: var(--emerald);
+  background: var(--emerald-glow);
+}
+
+.balance-pending {
+  margin-top: 0.6rem;
+  color: var(--gold-light);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.message.info {
+  background: var(--gold-glow);
+  color: var(--gold-light);
+}
+
+/* Calendar */
+.weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.36rem;
+  margin-top: 1rem;
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.day.empty {
+  background: transparent;
+}
+
+.day.today {
+  outline: 1px solid var(--gold-light);
+}
+
+/* Challenge list and cards */
+.list-heading {
+  margin: 2rem 0 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.challenge-list {
+  display: grid;
+  gap: 0.8rem;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.challenge-card {
+  padding: 1.15rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1.1rem;
+  background: var(--surface);
+}
+
+.challenge-card.active {
+  border-color: rgba(86, 212, 164, 0.45);
+  background: linear-gradient(160deg, #15262a, var(--surface));
+}
+
+.card-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.card-row h4 {
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.pill,
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.64rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.active-badge {
+  border-color: rgba(86, 212, 164, 0.5);
+  color: var(--emerald);
+}
+
+.card-meta {
+  margin-top: 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.card-meta b {
+  color: var(--text-primary);
+}
+
+.progress-track.small {
+  height: 0.38rem;
+  margin: 0.8rem 0 0;
+}
+
+.card-actions,
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+}
+
+.rename-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Buttons */
+.secondary-button.compact {
+  width: auto;
+  min-height: 2.75rem;
+  margin-top: 0;
+  padding: 0 1rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.secondary-button,
+.danger-button {
+  margin-top: 0.8rem;
+}
+
+.danger-button.solid {
+  background: #c4574d;
+  color: #fff;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Forms */
+.challenge-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  min-height: 2.75rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.field label {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.field input,
+.rename-row input {
+  min-height: 3rem;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  background: var(--ink);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 1rem; /* 16px avoids the iOS zoom-on-focus */
+}
+
+.field input:focus-visible,
+.rename-row input:focus-visible {
+  outline: 2px solid var(--gold-light);
+  outline-offset: 2px;
+}
+
+.field.invalid input {
+  border-color: #ef8e83;
+}
+
+.field-error {
+  color: #ffb1a9;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.form-preview {
+  padding: 0.8rem 0.95rem;
+  border-radius: 0.75rem;
+  background: var(--emerald-glow);
+  color: var(--emerald);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.form-note,
+.small-print {
+  margin-top: 0.8rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Dialogs */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: end center;
+  padding: 1rem;
+  background: rgba(4, 8, 11, 0.74);
+  backdrop-filter: blur(6px);
+}
+
+.dialog {
+  width: min(100%, 30rem);
+  max-height: calc(100svh - 2rem);
+  overflow-y: auto;
+  padding: 1.4rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1.25rem;
+  background: var(--surface);
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.5);
+}
+
+.dialog h2 {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 500;
+}
+
+.dialog p,
+.dialog-body {
+  margin-top: 0.7rem;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.dialog-body b,
+.dialog b {
+  color: var(--text-primary);
+}
+
+.dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+  margin-top: 1.3rem;
+}
+
+.dialog-actions .secondary-button,
+.dialog-actions .draw-button,
+.dialog-actions .danger-button {
+  margin-top: 0;
+}
+
+.import-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-list li {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.75rem;
+  background: var(--surface-muted);
+  font-size: 0.8rem;
+}
+
+.import-list span {
+  color: var(--text-secondary);
+}
+
+.choice-group {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice-group legend {
+  margin-bottom: 0.6rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.choice {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.8rem;
+}
+
+.choice input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.1rem;
+  accent-color: var(--emerald);
+}
+
+.choice span {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.86rem;
+}
+
+.choice small {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.callout {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-left: 3px solid var(--gold-light);
+  border-radius: 0.7rem;
+  background: var(--gold-glow);
+}
+
+.callout.danger {
+  border-color: #ef8e83;
+  background: rgba(239, 142, 131, 0.1);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  min-height: 2.75rem;
+  margin-top: 0.9rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.checkbox-row input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.1rem;
+  accent-color: #ef8e83;
+}
+
+@media (min-width: 44rem) {
+  .dialog-backdrop {
+    place-items: center;
+  }
+}
+
+@media (max-width: 24rem) {
+  .field-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .bottom-nav button {
+    min-width: 4rem;
+    font-size: 0.6rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+}
