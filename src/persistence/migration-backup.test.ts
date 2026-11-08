@@ -100,7 +100,9 @@ describe('G. multi-challenge (v2) backup: export and replace', () => {
     expect(backup).toMatchObject({ format: BACKUP_FORMAT, version: 2, exportedAt: EXPORTED_AT, activeChallengeId: 'today-id' })
     expect(backup.challenges.map((challenge) => challenge.id).sort()).toEqual(['default-id', 'done-id', 'spring-id', 'today-id'])
     backup.challenges.forEach((challenge) => {
-      expect(Object.keys(challenge).sort()).toEqual(['config', 'days', 'id', 'seed'])
+      // origin is stored so imported and migrated challenges keep their label after a restore; name only when set.
+      expect(Object.keys(challenge).sort()).toEqual(['config', 'days', 'id', 'origin', 'seed'])
+      expect(challenge.origin).toBe('created')
       expect(Object.keys(challenge.config).sort()).toEqual(['endDate', 'initialMinimumSek', 'preferredMaximumSek', 'startDate', 'targetSek'])
     })
   })

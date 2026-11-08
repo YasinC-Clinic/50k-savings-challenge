@@ -4,6 +4,16 @@ import type { Challenge, ChallengeConfig, ChallengeDay, DayStatus } from '../dom
 /** Where a challenge came from. Lets the UI label migrated and imported challenges later. */
 export type ChallengeOrigin = 'created' | 'legacy-v1-migration' | 'legacy-v1-backup' | 'backup-import' | 'backup-restore'
 
+export const CHALLENGE_ORIGINS: readonly ChallengeOrigin[] = [
+  'created',
+  'legacy-v1-migration',
+  'legacy-v1-backup',
+  'backup-import',
+  'backup-restore',
+]
+
+export const MAX_NAME_LENGTH = 60
+
 /** v1 row. The launched app stored exactly one: { id: 'active', seed }. Never written by v2 code. */
 export interface LegacyChallengeRow {
   id: string
@@ -16,6 +26,8 @@ export interface ChallengeRecord {
   config: ChallengeConfig
   origin: ChallengeOrigin
   createdAt: string
+  /** Optional user-visible name (at most MAX_NAME_LENGTH characters). */
+  name?: string
   /** For imported challenges: the id the challenge had in the backup it came from. */
   sourceChallengeId?: string
 }

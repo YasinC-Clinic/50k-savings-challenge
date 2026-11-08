@@ -4,6 +4,7 @@ import {
   IMPORTED_V1_PLACEHOLDER_ID,
   createBackupJson,
   parseBackup,
+  type ChallengeMeta,
   type CurrentBackup,
   type LegacyBackup,
 } from './backup'
@@ -20,6 +21,7 @@ import {
   skipDamagedLegacyData,
 } from './legacy-migration'
 import {
+  MAX_NAME_LENGTH,
   META_KEYS,
   toChallengeDay,
   toEntryRows,
@@ -31,6 +33,10 @@ import {
 export { BackupValidationError, PersistenceDatabaseError, PersistenceIntegrityError } from './errors'
 export { SavingsDatabase } from './savings-database'
 export { createBackupJson, describeBackup } from './backup'
+export type { BackupChallengeSummary, BackupSummary } from './backup'
+export { LegacyDataDamagedError, PersistenceVersionError } from './errors'
+export { MAX_NAME_LENGTH } from './savings-database'
+export type { ChallengeOrigin } from './savings-database'
 export { RAW_RECOVERY_FORMAT, RAW_RECOVERY_WARNING, LEGACY_CHALLENGE_ID } from './legacy-migration'
 
 export interface RepositoryOptions {
@@ -54,6 +60,7 @@ export interface RestoreResult {
 
 export interface ChallengeSummary {
   id: string
+  name?: string
   origin: ChallengeOrigin
   createdAt: string
   sourceChallengeId?: string
@@ -137,18 +144,32 @@ export class SavingsRepository {
     )
   }
 
+  /** Changes only the display name. An empty name removes it. */
+  async renameChallenge(id: string, name: string): Promise<void> {
+    const cleaned = cleanName(name)
+    return this.run(() =>
+      this.database.transaction('rw', this.database.challengeRecords, async () => {
+        const record = await this.database.challengeRecords.get(id)
+        if (!record) throw new PersistenceIntegrityError('Challenge does not exist')
+        const { name: _previous, ...rest } = record
+        await this.database.challengeRecords.put(cleaned ? { ...rest, name: cleaned } : rest)
+      }),
+    )
+  }
+
   /**
    * Creates or updates ONE challenge. Seed and config of an existing challenge never change, entries
    * are never removed, and confirmed or drawn entries are immutable. Other challenges are never touched.
    */
-  async saveChallenge(challenge: Challenge): Promise<void> {
+  async saveChallenge(challenge: Challenge, options: { name?: string } = {}): Promise<void> {
     const clean = parseForWrite(challenge)
+    const name = cleanName(options.name)
     return this.run(() =>
       this.database.transaction('rw', this.writeTables(), async () => {
         const existing = await this.database.challengeRecords.get(clean.id)
         if (existing) await this.assertCompatibleWithStored(existing, clean)
         assertTotalsForWrite(clean)
-        if (!existing) await this.database.challengeRecords.put(this.newRecord(clean, 'created'))
+        if (!existing) await this.database.challengeRecords.put(this.newRecord(clean, 'created', { name }))
         await this.database.challengeEntries.bulkPut(toEntryRows(clean))
         await this.activateIfNone(clean.id)
       }),
@@ -164,7 +185,11 @@ export class SavingsRepository {
       const challenges = await this.readAllChallenges()
       const active = await this.readActiveId()
       if (!active || challenges.length === 0) throw new PersistenceIntegrityError('No challenge exists to export')
-      return createBackupJson(challenges, active, exportedAt)
+      const meta: Record<string, ChallengeMeta> = {}
+      for (const record of await this.database.challengeRecords.toArray()) {
+        meta[record.id] = { name: record.name, origin: record.origin }
+      }
+      return createBackupJson(challenges, active, exportedAt, meta)
     })
   }
 
@@ -263,7 +288,11 @@ export class SavingsRepository {
     }
   }
 
-  private newRecord(challenge: Challenge, origin: ChallengeOrigin, sourceChallengeId?: string): ChallengeRecord {
+  private newRecord(
+    challenge: Challenge,
+    origin: ChallengeOrigin,
+    extras: { name?: string; sourceChallengeId?: string } = {},
+  ): ChallengeRecord {
     const record: ChallengeRecord = {
       id: challenge.id,
       seed: challenge.seed,
@@ -271,7 +300,8 @@ export class SavingsRepository {
       origin,
       createdAt: this.now(),
     }
-    if (sourceChallengeId !== undefined) record.sourceChallengeId = sourceChallengeId
+    if (extras.name) record.name = extras.name
+    if (extras.sourceChallengeId !== undefined) record.sourceChallengeId = extras.sourceChallengeId
     return record
   }
 
@@ -297,7 +327,8 @@ export class SavingsRepository {
     await this.database.challengeEntries.clear()
     await this.database.challengeRecords.clear()
     for (const challenge of backup.challenges) {
-      await this.database.challengeRecords.put(this.newRecord(challenge, 'backup-restore'))
+      const meta = backup.meta[challenge.id]
+      await this.database.challengeRecords.put(this.newRecord(challenge, meta?.origin ?? 'backup-restore', { name: meta?.name }))
       await this.database.challengeEntries.bulkAdd(toEntryRows(challenge))
     }
     await this.database.appMeta.put({ key: META_KEYS.activeChallengeId, value: backup.activeChallengeId })
@@ -316,8 +347,9 @@ export class SavingsRepository {
     for (const source of sources) {
       const id = await this.freshChallengeId(importedIds)
       const imported: Challenge = { ...source, id }
-      const sourceId = source.id === IMPORTED_V1_PLACEHOLDER_ID ? undefined : source.id
-      await this.database.challengeRecords.put(this.newRecord(imported, origin, sourceId))
+      const sourceChallengeId = source.id === IMPORTED_V1_PLACEHOLDER_ID ? undefined : source.id
+      const name = backup.version === 2 ? backup.meta[source.id]?.name : undefined
+      await this.database.challengeRecords.put(this.newRecord(imported, origin, { name, sourceChallengeId }))
       await this.database.challengeEntries.bulkAdd(toEntryRows(imported))
       importedIds.push(id)
     }
@@ -368,8 +400,16 @@ function assertRestoreAllowed(backup: LegacyBackup | CurrentBackup, options: Res
   throw new BackupValidationError('Choose whether to replace all challenges or import them as new ones')
 }
 
+function cleanName(name: string | undefined): string | undefined {
+  const trimmed = name?.trim()
+  if (!trimmed) return undefined
+  if (trimmed.length > MAX_NAME_LENGTH) throw new PersistenceIntegrityError('Challenge name is too long')
+  return trimmed
+}
+
 function toSummary(record: ChallengeRecord): ChallengeSummary {
   const summary: ChallengeSummary = { id: record.id, origin: record.origin, createdAt: record.createdAt }
+  if (record.name) summary.name = record.name
   if (record.sourceChallengeId !== undefined) summary.sourceChallengeId = record.sourceChallengeId
   return summary
 }

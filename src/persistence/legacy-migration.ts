@@ -1,7 +1,7 @@
 import Dexie from 'dexie'
 import { DEFAULT_CHALLENGE_CONFIG, type Challenge } from '../domain/challenge'
 import { InvalidChallengeError, parseChallenge } from './challenge-validation'
-import { PersistenceDatabaseError, PersistenceIntegrityError } from './errors'
+import { LegacyDataDamagedError, PersistenceDatabaseError, PersistenceIntegrityError } from './errors'
 import { META_KEYS, toEntryRows, type SavingsDatabase } from './savings-database'
 
 /** Stable identity of the challenge that existed in the launched (v1) app. */
@@ -61,9 +61,7 @@ export async function migrateLegacyData(db: SavingsDatabase, now: string): Promi
 
     const state = await readLegacyState(db)
     if (state.kind === 'damaged') {
-      throw new PersistenceIntegrityError(
-        `Stored data from the previous version is damaged (${state.reason}). Export the raw data before doing anything else.`,
-      )
+      throw new LegacyDataDamagedError(state.reason)
     }
     if (state.kind === 'valid') {
       await writeMigratedChallenge(db, state.challenge, now)
@@ -118,11 +116,10 @@ export async function exportRawLegacyData(databaseName: string, exportedAt: stri
   const connection = new Dexie(databaseName)
   try {
     await connection.open()
+    // Every table that exists is exported as-is: the v1 tables always, and the v2 tables when present.
     const tables: Record<string, unknown[]> = {}
-    for (const name of LEGACY_TABLES) {
-      const present = connection.tables.some((table) => table.name === name)
-      tables[name] = present ? await connection.table(name).toArray() : []
-    }
+    for (const name of LEGACY_TABLES) tables[name] = []
+    for (const table of connection.tables) tables[table.name] = await table.toArray()
     return JSON.stringify({ format: RAW_RECOVERY_FORMAT, version: 1, exportedAt, warning: RAW_RECOVERY_WARNING, database: databaseName, tables })
   } catch (error) {
     throw new PersistenceDatabaseError('Unable to read the local database for export', { cause: error })
