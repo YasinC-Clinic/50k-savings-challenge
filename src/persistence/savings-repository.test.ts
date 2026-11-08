@@ -9,6 +9,7 @@ import {
 } from './savings-repository'
 
 const databases: SavingsDatabase[] = []
+const REPLACE = { mode: 'replace', confirmReplace: true } as const
 
 function createRepository(): SavingsRepository {
   const database = new SavingsDatabase(`savings-test-${crypto.randomUUID()}`)
@@ -75,18 +76,18 @@ describe('backup export and restoration', () => {
     const backup = await source.exportBackup('2027-01-01T09:00:00.000Z')
     const target = createRepository()
 
-    await target.restoreBackup(backup)
+    await target.restoreBackup(backup, REPLACE)
     expect(await target.loadChallenge()).toEqual(challenge)
-    expect(JSON.parse(backup)).toMatchObject({ format: '50k-savings-challenge-backup', version: 1, exportedAt: '2027-01-01T09:00:00.000Z' })
+    expect(JSON.parse(backup)).toMatchObject({ format: '50k-savings-challenge-backup', version: 2, exportedAt: '2027-01-01T09:00:00.000Z' })
   })
 
   it('rejects corrupt and incompatible backups before changing existing data', async () => {
     const repository = createRepository()
     const original = createChallenge('original')
     await repository.saveChallenge(original)
-    await expect(repository.restoreBackup('{not json')).rejects.toBeInstanceOf(BackupValidationError)
-    await expect(repository.restoreBackup(JSON.stringify({ format: 'wrong-format', version: 1 }))).rejects.toBeInstanceOf(BackupValidationError)
-    await expect(repository.restoreBackup(JSON.stringify({ format: '50k-savings-challenge-backup', version: 2 }))).rejects.toBeInstanceOf(BackupValidationError)
+    await expect(repository.restoreBackup('{not json', REPLACE)).rejects.toBeInstanceOf(BackupValidationError)
+    await expect(repository.restoreBackup(JSON.stringify({ format: 'wrong-format', version: 1 }), REPLACE)).rejects.toBeInstanceOf(BackupValidationError)
+    await expect(repository.restoreBackup(JSON.stringify({ format: '50k-savings-challenge-backup', version: 2 }), REPLACE)).rejects.toBeInstanceOf(BackupValidationError)
     expect(await repository.loadChallenge()).toEqual(original)
   })
 
@@ -95,7 +96,7 @@ describe('backup export and restoration', () => {
     const existing = createChallenge('existing')
     const restored = confirmDay(drawToday(createChallenge('restored'), '2027-01-01'), '2027-01-01')
     await repository.saveChallenge(existing)
-    await repository.restoreBackup(createBackupJson(restored, '2027-01-02T09:00:00.000Z'))
+    await repository.restoreBackup(createBackupJson([restored], restored.id, '2027-01-02T09:00:00.000Z'), REPLACE)
 
     expect(await repository.loadChallenge()).toEqual(restored)
     expect(await repository.entryCount()).toBe(181)
@@ -105,15 +106,17 @@ describe('backup export and restoration', () => {
     const repository = createRepository()
     const original = createChallenge('atomic-original')
     await repository.saveChallenge(original)
-    const invalid = JSON.parse(createBackupJson(createChallenge('invalid'), '2027-01-02T09:00:00.000Z')) as { challenge: { days: Array<{ amount: number }> } }
-    invalid.challenge.days[0].amount = 0
-    await expect(repository.restoreBackup(JSON.stringify(invalid))).rejects.toBeInstanceOf(BackupValidationError)
+    const invalidSource = createChallenge('invalid')
+    const invalid = JSON.parse(createBackupJson([invalidSource], invalidSource.id, '2027-01-02T09:00:00.000Z')) as { challenges: Array<{ days: Array<{ amount: number }> }> }
+    invalid.challenges[0].days[0].amount = 0
+    await expect(repository.restoreBackup(JSON.stringify(invalid), REPLACE)).rejects.toBeInstanceOf(BackupValidationError)
     expect(await repository.loadChallenge()).toEqual(original)
   })
 
   it('rejects invalid export timestamps and exports only existing challenges', async () => {
     const repository = createRepository()
     await expect(repository.exportBackup()).rejects.toThrow('No challenge exists')
-    expect(() => createBackupJson(createChallenge('timestamp'), 'not-a-date')).toThrow(BackupValidationError)
+    const timestamped = createChallenge('timestamp')
+    expect(() => createBackupJson([timestamped], timestamped.id, 'not-a-date')).toThrow(BackupValidationError)
   })
 })
