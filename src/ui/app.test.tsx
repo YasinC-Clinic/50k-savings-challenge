@@ -8,13 +8,14 @@ import App from '../App'
 import { DEFAULT_CHALLENGE_CONFIG, confirmDay, createChallenge, drawToday, type ChallengeConfig } from '../domain/challenge'
 import { SavingsDatabase, SavingsRepository } from '../persistence/savings-repository'
 import { playedChallenge, seedV1Database, snapshotLegacyTables, uniqueName, v1BackupJson, withDay } from '../persistence/testing/v1-fixtures'
-import { sek } from './format'
+import { createI18n } from '../i18n/i18n'
 
 configure({ asyncUtilTimeout: 5000 })
 
 const databases: SavingsDatabase[] = []
 const names: string[] = []
 const norm = (value: string | null | undefined) => (value ?? '').replace(/[  ]/g, ' ')
+const sek = createI18n('sv').fmt.sek
 const startedToday: ChallengeConfig = { targetSek: 50_000, startDate: '2026-11-08', endDate: '2027-06-30', initialMinimumSek: 50, preferredMaximumSek: 500 }
 
 afterEach(async () => {
@@ -23,6 +24,8 @@ afterEach(async () => {
   databases.splice(0).forEach((database) => database.close())
   await Promise.all(names.splice(0).map((name) => Dexie.delete(name)))
   Reflect.deleteProperty(navigator, 'storage')
+  // The chosen language is stored on the device; every test starts like a new installation (Swedish).
+  localStorage.clear()
 })
 
 /** An isolated database and a clock the test can move. 2026-11-08 11:00 in Stockholm unless told otherwise. */

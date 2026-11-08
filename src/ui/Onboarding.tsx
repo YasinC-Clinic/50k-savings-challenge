@@ -1,4 +1,5 @@
 import type { NewChallengeInput } from '../app/use-savings-app'
+import { useI18n } from '../i18n/LanguageProvider'
 import { CreateChallengeForm } from './CreateChallengeForm'
 
 interface OnboardingProps {
@@ -8,23 +9,22 @@ interface OnboardingProps {
 
 /** Shown when the device has no challenge yet. */
 export function Onboarding({ today, onCreate }: OnboardingProps) {
+  const { t } = useI18n()
   return (
     <section className="challenge-intro">
       <p className="eyebrow">
-        <span className="status-dot" /> Välkommen
+        <span className="status-dot" /> {t.onboarding.eyebrow}
       </p>
       <h1>
-        Spara <span>steg för steg</span>
+        {t.onboarding.titleBefore}
+        <span>{t.onboarding.titleHighlight}</span>
       </h1>
-      <p className="challenge-dates">
-        Välj ett mål, en period och dina dagsbelopp. Varje dag drar du ett slumpmässigt belopp, för själv över pengarna via din bank och
-        bekräftar sedan här. Appen är inte kopplad till någon bank och flyttar aldrig pengar.
-      </p>
+      <p className="challenge-dates">{t.onboarding.intro}</p>
       <article className="settings-card">
-        <h3>Skapa din första utmaning</h3>
-        <CreateChallengeForm today={today} existingCount={0} submitLabel="Starta utmaningen" onSubmit={onCreate} />
+        <h3>{t.onboarding.cardTitle}</h3>
+        <CreateChallengeForm today={today} existingCount={0} submitLabel={t.onboarding.submit} onSubmit={onCreate} />
       </article>
-      <p className="form-note">Har du en säkerhetskopia från tidigare? Importera den under Inställningar.</p>
+      <p className="form-note">{t.onboarding.importHint}</p>
     </section>
   )
 }

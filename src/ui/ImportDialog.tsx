@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import type { BackupSummary } from '../persistence/savings-repository'
 import type { ImportMode } from '../app/use-savings-app'
-import { formatRange, sek } from './format'
+import { useI18n } from '../i18n/LanguageProvider'
+import type { BackupSummary } from '../persistence/savings-repository'
 
 interface ImportDialogProps {
   summary: BackupSummary
@@ -14,6 +14,8 @@ interface ImportDialogProps {
 
 /** Explains exactly what an import will do before anything is changed. */
 export function ImportDialog({ summary, existingCount, onImport, onCancel, onExportCurrent }: ImportDialogProps) {
+  const { t, fmt } = useI18n()
+  const d = t.importDialog
   const [mode, setMode] = useState<ImportMode>('import-as-new')
   const [understood, setUnderstood] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -32,47 +34,42 @@ export function ImportDialog({ summary, existingCount, onImport, onCancel, onExp
   return (
     <div className="dialog-backdrop">
       <div className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="import-title">
-        <h2 id="import-title">Importera säkerhetskopia</h2>
-        <p>
-          Filen är giltig och innehåller {summary.challengeCount} {summary.challengeCount === 1 ? 'utmaning' : 'utmaningar'}:
-        </p>
+        <h2 id="import-title">{d.title}</h2>
+        <p>{d.valid(summary.challengeCount)}</p>
         <ul className="import-list">
           {summary.challenges.map((challenge, index) => (
             <li key={index}>
-              <b>{challenge.name ?? `Utmaning ${sek(challenge.targetSek)}`}</b>
-              <span>{formatRange(challenge.startDate, challenge.endDate)}</span>
-              <span>
-                {sek(challenge.savedSek)} sparat av {sek(challenge.targetSek)}
-              </span>
+              <b>{challenge.name ?? t.status.unnamed(fmt.sek(challenge.targetSek))}</b>
+              <span>{fmt.range(challenge.startDate, challenge.endDate)}</span>
+              <span>{d.savedOf(fmt.sek(challenge.savedSek), fmt.sek(challenge.targetSek))}</span>
             </li>
           ))}
         </ul>
 
         {summary.version === 1 && (
           <p className="callout">
-            Det här är en säkerhetskopia från en äldre version av appen. Den läggs till som en <b>ny, separat utmaning</b>. Inget på den här
-            enheten ersätts.
+            {d.legacyBefore}
+            <b>{d.legacyBold}</b>
+            {d.legacyAfter}
           </p>
         )}
 
         {summary.version === 2 && (
           <fieldset className="choice-group">
-            <legend>Hur vill du importera?</legend>
+            <legend>{d.howLegend}</legend>
             <label className="choice">
               <input type="radio" name="import-mode" checked={!replacing} onChange={() => setMode('import-as-new')} />
               <span>
-                <b>Lägg till som nya utmaningar</b>
-                <small>Rekommenderas. Dina nuvarande utmaningar behålls helt oförändrade.</small>
+                <b>{d.addTitle}</b>
+                <small>{d.addDescription}</small>
               </span>
             </label>
             {canReplace && (
               <label className="choice">
                 <input type="radio" name="import-mode" checked={replacing} onChange={() => setMode('replace')} />
                 <span>
-                  <b>Ersätt allt på den här enheten</b>
-                  <small>
-                    Alla {existingCount} nuvarande {existingCount === 1 ? 'utmaning' : 'utmaningar'} tas bort och ersätts av filens innehåll.
-                  </small>
+                  <b>{d.replaceTitle}</b>
+                  <small>{d.replaceDescription(existingCount)}</small>
                 </span>
               </label>
             )}
@@ -82,21 +79,22 @@ export function ImportDialog({ summary, existingCount, onImport, onCancel, onExp
         {replacing && (
           <div className="callout danger">
             <p>
-              <b>Varning:</b> Det här tar bort allt sparande som finns på enheten nu. Det går inte att ångra utan en säkerhetskopia.
+              <b>{d.warningLabel}</b>
+              {d.warningText}
             </p>
             <button type="button" className="secondary-button compact" onClick={onExportCurrent}>
-              Exportera nuvarande data först
+              {d.exportFirst}
             </button>
             <label className="checkbox-row">
               <input type="checkbox" checked={understood} onChange={(event) => setUnderstood(event.target.checked)} />
-              <span>Jag förstår att alla nuvarande utmaningar ersätts.</span>
+              <span>{d.understand}</span>
             </label>
           </div>
         )}
 
         <div className="dialog-actions">
           <button type="button" className="secondary-button" onClick={onCancel} disabled={busy}>
-            Avbryt
+            {d.cancel}
           </button>
           <button
             type="button"
@@ -104,7 +102,7 @@ export function ImportDialog({ summary, existingCount, onImport, onCancel, onExp
             disabled={busy || (replacing && !understood)}
             onClick={() => void submit()}
           >
-            {replacing ? 'Ersätt allt' : 'Importera som ny'}
+            {replacing ? d.replaceAll : d.importAsNew}
           </button>
         </div>
       </div>

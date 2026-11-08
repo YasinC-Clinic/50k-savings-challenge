@@ -353,6 +353,14 @@ button:disabled {
   font-weight: 800;
 }
 
+/* Language selector (reuses the look of the duration options) */
+.language-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
 .plan-summary {
   display: grid;
   gap: 0;

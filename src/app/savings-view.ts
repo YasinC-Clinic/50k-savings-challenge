@@ -99,7 +99,11 @@ function getPlanStatus(challenge: Challenge, today: string, status: DashboardVie
   return { kind: 'on-track' }
 }
 
-export function getMonthlyHistory(challenge: Challenge): MonthlyHistory[] {
+/** "november 2026". Callers that display the history pass the formatter of the chosen language. */
+const swedishMonthLabel = (monthKey: string) =>
+  new Intl.DateTimeFormat('sv-SE', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${monthKey}-01T12:00:00Z`))
+
+export function getMonthlyHistory(challenge: Challenge, formatMonth: (monthKey: string) => string = swedishMonthLabel): MonthlyHistory[] {
   const months = new Map<string, HistoryEntry[]>()
   challenge.days.forEach((day) => {
     const key = day.date.slice(0, 7)
@@ -107,10 +111,9 @@ export function getMonthlyHistory(challenge: Challenge): MonthlyHistory[] {
     entries.push({ date: day.date, status: day.status, amount: day.status === 'undrawn' ? null : day.amount })
     months.set(key, entries)
   })
-  const monthName = new Intl.DateTimeFormat('sv-SE', { month: 'long', year: 'numeric', timeZone: 'UTC' })
   return [...months.entries()].map(([key, entries]) => ({
     key,
-    label: monthName.format(new Date(`${key}-01T12:00:00Z`)),
+    label: formatMonth(key),
     confirmedSek: sumOf(entries.filter((entry) => entry.status === 'confirmed').map((entry) => ({ amount: entry.amount ?? 0 }))),
     entries,
   }))
