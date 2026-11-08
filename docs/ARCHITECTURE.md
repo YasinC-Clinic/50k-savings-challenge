@@ -15,7 +15,16 @@ bank integration: every challenge lives only on the device. The interface is Swe
 ## Challenge rules
 
 - A challenge has a `ChallengeConfig`: `targetSek`, `startDate`, `endDate`, `initialMinimumSek` (50), `preferredMaximumSek` (500).
-- Defaults: 50,000 SEK, 2027-01-01 to 2027-06-30 (181 days). A new challenge defaults to starting today and ending 2027-06-30.
+- The original challenge: 50,000 SEK, 2027-01-01 to 2027-06-30 (181 days). It stays as it is.
+- **New challenges are created by duration**, never by typing dates. The person picks 1, 2, 3, 4, 5, 6 (default), 9 or 12 months;
+  the start date is today in `Europe/Stockholm` and the end date is calculated. The calculated dates are stored in the same
+  `startDate`/`endDate` fields as before, so there is no schema change and existing challenges are never recalculated.
+- **Month rule** (`addMonths`): keep the day of the month; if the target month is shorter, use its last day. 8 Nov + 6 months = 8 May;
+  31 Jan + 1 month = 28 Feb (29 Feb in a leap year); 31 Mar + 1 month = 30 Apr; 29 Feb + 12 months = 28 Feb. It is pure
+  year/month/day arithmetic with no `Date`, UTC or time zone, so daylight saving cannot move a date. The number of days is the real
+  calendar count from start to end, both included (six months from 8 Nov 2026 is 182 days).
+- The daily amounts are limited to 50-500 SEK, so a target only fits a period holding enough days: 50,000 SEK needs at least 4 months.
+  The form says exactly what is possible and blocks creation otherwise.
 - Daily amounts are random integers (seeded), totalling exactly the target. An amount is hidden until drawn; a drawn amount is fixed;
   only a **confirmed** amount counts as saved; confirmed amounts are immutable.
 - Only today (Europe/Stockholm) can be drawn or confirmed. Earlier unresolved days become **missed** and never count.
