@@ -7,6 +7,13 @@ export const CHALLENGE = {
   preferredMaximumSek: 500,
 } as const
 
+/** Hard bounds for user-supplied or imported configurations. The default challenge is far inside them. */
+export const CHALLENGE_LIMITS = {
+  maxDays: 1100,
+  maxTargetSek: 10_000_000,
+  maxDailySek: 100_000,
+} as const
+
 export interface ChallengeConfig {
   targetSek: number
   startDate: string
@@ -247,9 +254,28 @@ function assertChallengeDate(config: ChallengeConfig, date: string): void {
 }
 
 function assertConfiguration(config: ChallengeConfig): void {
-  if (!Number.isSafeInteger(config.targetSek) || !Number.isSafeInteger(config.initialMinimumSek) || !Number.isSafeInteger(config.preferredMaximumSek) || config.targetSek <= 0 || config.initialMinimumSek <= 0 || config.preferredMaximumSek < config.initialMinimumSek || !isCalendarDate(config.startDate) || !isCalendarDate(config.endDate) || config.endDate <= config.startDate) throw new Error('Challenge configuration is invalid')
+  assertConfigurationFields(config)
+  assertWithinLimits(config)
   const days = countDays(config.startDate, config.endDate)
+  if (days > CHALLENGE_LIMITS.maxDays) throw new Error('Challenge is longer than the supported maximum')
   if (config.targetSek < days * config.initialMinimumSek || config.targetSek > days * config.preferredMaximumSek) throw new Error('Challenge target is not achievable in the selected dates and range')
+}
+
+function assertConfigurationFields(config: ChallengeConfig): void {
+  const amounts = [config.targetSek, config.initialMinimumSek, config.preferredMaximumSek]
+  if (!amounts.every((amount) => Number.isSafeInteger(amount))) throw new Error('Challenge configuration is invalid')
+  if (config.targetSek <= 0 || config.initialMinimumSek <= 0) throw new Error('Challenge configuration is invalid')
+  if (config.preferredMaximumSek < config.initialMinimumSek) throw new Error('Challenge configuration is invalid')
+  if (!isCalendarDate(config.startDate) || !isCalendarDate(config.endDate)) throw new Error('Challenge configuration is invalid')
+  if (config.endDate <= config.startDate) throw new Error('Challenge configuration is invalid')
+}
+
+/** Cheap checks that run before any loop over the date range, so hostile input cannot cause long work. */
+function assertWithinLimits(config: ChallengeConfig): void {
+  const yearSpan = Number(config.endDate.slice(0, 4)) - Number(config.startDate.slice(0, 4))
+  if (yearSpan > Math.ceil(CHALLENGE_LIMITS.maxDays / 365)) throw new Error('Challenge is longer than the supported maximum')
+  if (config.targetSek > CHALLENGE_LIMITS.maxTargetSek) throw new Error('Challenge target is above the supported maximum')
+  if (config.preferredMaximumSek > CHALLENGE_LIMITS.maxDailySek) throw new Error('Daily maximum is above the supported maximum')
 }
 
 function countDays(startDate: string, endDate: string): number {

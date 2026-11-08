@@ -1,15 +1,18 @@
 /**
- * BACKUP CONTRACT. Restoring OLD v1 files and round-tripping the NEW multi-challenge v2 format.
+ * BACKUP CONTRACT (approved product decisions).
  *
- *  - A backup is a complete snapshot of the device: restore REPLACES all challenges, never merges.
- *  - Old v1 files (exported by the launched app) must keep restoring forever: one challenge, default config.
- *  - v2 holds every challenge (active, started-today, custom, completed history) plus the active id.
- *  - Export is deterministic. Any invalid file is rejected with BackupValidationError and changes nothing.
+ *  - v1 file (exported by the launched app): ALWAYS imported as ONE new independent challenge with a
+ *    new id. Never replaces anything. Original dates, amounts, statuses, seed and confirmations survive.
+ *  - v2 file: caller must choose 'replace' (needs confirmReplace: true) or 'import-as-new'.
+ *    'import-as-new' gives every challenge a new id and never overwrites an existing one.
+ *  - The whole file is validated before the first write; every failure leaves the device untouched.
+ *  - Applying a backup is atomic: a failure half way rolls everything back.
  */
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  CHALLENGE_LIMITS,
   DEFAULT_CHALLENGE_CONFIG,
   confirmDay,
   createChallenge,
@@ -17,7 +20,7 @@ import {
   type Challenge,
   type ChallengeConfig,
 } from '../domain/challenge'
-import { SavingsDatabase, SavingsRepository } from './savings-repository'
+import { SavingsDatabase, SavingsRepository, type RepositoryOptions } from './savings-repository'
 import {
   BACKUP_FORMAT,
   EXPORTED_AT,
@@ -29,17 +32,29 @@ import {
   withDay,
 } from './testing/v1-fixtures'
 
+const REPLACE = { mode: 'replace', confirmReplace: true } as const
+const IMPORT = { mode: 'import-as-new' } as const
+
 const opened: SavingsDatabase[] = []
 const names: string[] = []
 
-function openRepository(name = uniqueName('backup')): SavingsRepository {
+function sequentialIds(prefix: string): () => string {
+  let counter = 0
+  return () => {
+    counter += 1
+    return `${prefix}-${counter}`
+  }
+}
+
+function openRepository(name = uniqueName('backup'), options: RepositoryOptions = {}): SavingsRepository {
   const database = new SavingsDatabase(name)
   opened.push(database)
   names.push(name)
-  return new SavingsRepository(database)
+  return new SavingsRepository(database, { createId: sequentialIds('new'), ...options })
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   opened.splice(0).forEach((database) => database.close())
   await Promise.all(names.splice(0).map((name) => Dexie.delete(name)))
 })
@@ -62,6 +77,7 @@ async function populate(repository: SavingsRepository, order: Challenge[] = four
 }
 
 const byId = (a: Challenge, b: Challenge) => a.id.localeCompare(b.id)
+const withoutId = (challenge: Challenge) => ({ seed: challenge.seed, config: challenge.config, days: challenge.days })
 
 async function state(repository: SavingsRepository) {
   return { challenges: (await repository.listChallenges()).sort(byId), active: await repository.activeChallengeId() }
@@ -76,7 +92,7 @@ async function exportV2(repository: SavingsRepository): Promise<V2> {
   return JSON.parse(await repository.exportBackup(EXPORTED_AT)) as V2
 }
 
-describe('G. multi-challenge (v2) backup', () => {
+describe('G. multi-challenge (v2) backup: export and replace', () => {
   it('exports every challenge with the documented shape', async () => {
     const repository = openRepository()
     await populate(repository)
@@ -104,19 +120,18 @@ describe('G. multi-challenge (v2) backup', () => {
     await populate(source)
     const exported = await source.exportBackup(EXPORTED_AT)
     const target = openRepository()
-    await target.restoreBackup(exported)
+    await target.restoreBackup(exported, REPLACE)
 
     expect(await state(target)).toEqual(await state(source))
     expect(await target.exportBackup(EXPORTED_AT)).toBe(exported)
-    const originals = fourChallenges().sort(byId)
-    expect((await state(target)).challenges).toEqual(originals)
+    expect((await state(target)).challenges).toEqual(fourChallenges().sort(byId))
   })
 
   it('keeps confirmations, drawn days and a fully completed past challenge', async () => {
     const source = openRepository()
     await populate(source)
     const target = openRepository()
-    await target.restoreBackup(await source.exportBackup(EXPORTED_AT))
+    await target.restoreBackup(await source.exportBackup(EXPORTED_AT), REPLACE)
     const restored = (await target.listChallenges()).sort(byId)
     const find = (id: string) => restored.find((challenge) => challenge.id === id)!
     expect(find('default-id').days[0].status).toBe('confirmed')
@@ -125,14 +140,14 @@ describe('G. multi-challenge (v2) backup', () => {
     expect(find('spring-id').days.every((day) => day.status === 'undrawn')).toBe(true)
   })
 
-  it('replaces the device state instead of merging', async () => {
+  it('replace removes every challenge that is not in the backup', async () => {
     const target = openRepository()
     await target.saveChallenge(createChallenge('old', DEFAULT_CHALLENGE_CONFIG, 'old-id'))
     const source = openRepository()
     await populate(source)
-    await target.restoreBackup(await source.exportBackup(EXPORTED_AT))
-    const ids = (await target.listChallenges()).map((challenge) => challenge.id).sort()
-    expect(ids).toEqual(['default-id', 'done-id', 'spring-id', 'today-id'])
+    const result = await target.restoreBackup(await source.exportBackup(EXPORTED_AT), REPLACE)
+    expect(result).toMatchObject({ mode: 'replace', activeChallengeId: 'today-id' })
+    expect((await target.listChallenges()).map((challenge) => challenge.id).sort()).toEqual(['default-id', 'done-id', 'spring-id', 'today-id'])
     expect(await target.loadChallenge('old-id')).toBeNull()
   })
 
@@ -141,12 +156,117 @@ describe('G. multi-challenge (v2) backup', () => {
     await populate(source)
     const name = uniqueName('backup-reopen')
     const target = openRepository(name)
-    await target.restoreBackup(await source.exportBackup(EXPORTED_AT))
+    await target.restoreBackup(await source.exportBackup(EXPORTED_AT), REPLACE)
     const expected = await state(target)
     target.database.close()
     expect(await state(openRepository(name))).toEqual(expected)
   })
 
+  it('exports a completed challenge and restores it as history', async () => {
+    const source = openRepository()
+    await populate(source)
+    const exported = JSON.parse(await source.exportBackup(EXPORTED_AT)) as V2
+    expect(exported.challenges.some((challenge) => challenge.id === 'done-id')).toBe(true)
+  })
+})
+
+describe('G2. v2 restore needs an explicit choice', () => {
+  it.each([
+    ['no options at all', undefined],
+    ['an unknown mode', { mode: 'merge' }],
+    ['replace without confirmation', { mode: 'replace' }],
+    ['replace with confirmReplace: false', { mode: 'replace', confirmReplace: false }],
+    ['replace with a truthy but non-true confirmation', { mode: 'replace', confirmReplace: 'yes' }],
+  ])('refuses %s and changes nothing', async (_label, options) => {
+    const source = openRepository()
+    await populate(source)
+    const backup = await source.exportBackup(EXPORTED_AT)
+    const target = openRepository()
+    await target.saveChallenge(createChallenge('keep-me', DEFAULT_CHALLENGE_CONFIG, 'keep-me'))
+    const before = await state(target)
+    await expect(target.restoreBackup(backup, options as never)).rejects.toMatchObject({ name: 'BackupValidationError' })
+    expect(await state(target)).toEqual(before)
+  })
+})
+
+describe('G3. v2 import as new independent challenges', () => {
+  it('adds every challenge under a new id and leaves existing challenges and the active one untouched', async () => {
+    const source = openRepository()
+    await populate(source)
+    const backup = await source.exportBackup(EXPORTED_AT)
+
+    const target = openRepository()
+    const existing = createChallenge('existing', DEFAULT_CHALLENGE_CONFIG, 'existing-id')
+    await target.saveChallenge(existing)
+    const result = await target.restoreBackup(backup, IMPORT)
+
+    expect(result.mode).toBe('import-as-new')
+    expect(result.importedChallengeIds).toHaveLength(4)
+    expect(result.importedChallengeIds.every((id) => !['default-id', 'done-id', 'spring-id', 'today-id', 'existing-id'].includes(id))).toBe(true)
+    expect(await target.activeChallengeId()).toBe('existing-id')
+    expect(await target.loadChallenge('existing-id')).toEqual(existing)
+
+    const all = await target.listChallenges()
+    expect(all).toHaveLength(5)
+    const imported = all.filter((challenge) => result.importedChallengeIds.includes(challenge.id))
+    expect(imported.map(withoutId).sort((a, b) => a.seed.localeCompare(b.seed))).toEqual(fourChallenges().map(withoutId).sort((a, b) => a.seed.localeCompare(b.seed)))
+  })
+
+  it('records where imported challenges came from', async () => {
+    const source = openRepository()
+    await populate(source)
+    const target = openRepository()
+    await target.restoreBackup(await source.exportBackup(EXPORTED_AT), IMPORT)
+    const summaries = await target.listChallengeSummaries()
+    expect(summaries).toHaveLength(4)
+    expect(summaries.every((summary) => summary.origin === 'backup-import')).toBe(true)
+    expect(summaries.map((summary) => summary.sourceChallengeId).sort()).toEqual(['default-id', 'done-id', 'spring-id', 'today-id'])
+  })
+
+  it('activates the first imported challenge when the device had none', async () => {
+    const source = openRepository()
+    await populate(source)
+    const target = openRepository()
+    const result = await target.restoreBackup(await source.exportBackup(EXPORTED_AT), IMPORT)
+    expect(await target.activeChallengeId()).toBe(result.importedChallengeIds[0])
+  })
+
+  it('importing the same file twice creates independent copies and overwrites nothing', async () => {
+    const source = openRepository()
+    await populate(source)
+    const backup = await source.exportBackup(EXPORTED_AT)
+    const target = openRepository()
+    const first = await target.restoreBackup(backup, IMPORT)
+    const second = await target.restoreBackup(backup, IMPORT)
+    const ids = [...first.importedChallengeIds, ...second.importedChallengeIds]
+    expect(new Set(ids).size).toBe(8)
+    expect(await target.listChallenges()).toHaveLength(8)
+  })
+
+  it('never reuses an id that already exists, even if the id generator proposes one', async () => {
+    const target = openRepository(uniqueName('backup-collision'), { createId: sequentialIds('taken') })
+    await target.saveChallenge(createChallenge('squatter', DEFAULT_CHALLENGE_CONFIG, 'taken-1'))
+    const squatter = (await target.loadChallenge('taken-1'))!
+
+    const source = openRepository()
+    await populate(source)
+    const result = await target.restoreBackup(await source.exportBackup(EXPORTED_AT), IMPORT)
+    expect(result.importedChallengeIds).not.toContain('taken-1')
+    expect(await target.loadChallenge('taken-1')).toEqual(squatter)
+  })
+
+  it('does not let a backup challenge that shares an id with an existing one overwrite it', async () => {
+    const source = openRepository()
+    await populate(source)
+    const target = openRepository()
+    const mine = confirmDay(drawToday(createChallenge('mine', DEFAULT_CHALLENGE_CONFIG, 'default-id'), '2027-01-02'), '2027-01-02')
+    await target.saveChallenge(mine)
+    await target.restoreBackup(await source.exportBackup(EXPORTED_AT), IMPORT)
+    expect(await target.loadChallenge('default-id')).toEqual(mine)
+  })
+})
+
+describe('G4. v2 validation rejects bad files before any write', () => {
   const rejections: Array<[string, (backup: V2) => void]> = [
     ['an unsupported future version', (b) => { b.version = 3 }],
     ['a wrong format marker', (b) => { b.format = 'something-else' }],
@@ -158,56 +278,115 @@ describe('G. multi-challenge (v2) backup', () => {
     ['a missing active challenge id', (b) => { delete b.activeChallengeId }],
     ['a challenge without an id', (b) => { delete b.challenges[0].id }],
     ['a challenge with an empty id', (b) => { b.challenges[0].id = '' }],
+    ['a challenge with an over-long id', (b) => { b.challenges[0].id = 'x'.repeat(101) }],
     ['a challenge without a seed', (b) => { delete b.challenges[0].seed }],
     ['a challenge without a config', (b) => { delete (b.challenges[0] as Record<string, unknown>).config }],
     ['an amount of zero', (b) => { b.challenges[0].days[3].amount = 0 }],
     ['an unknown day status', (b) => { b.challenges[0].days[3].status = 'bogus' }],
+    ['amounts that no longer add up to the target', (b) => { b.challenges[0].days[3].amount = (b.challenges[0].days[3].amount as number) + 1 }],
+    ['a daily amount above the target', (b) => { b.challenges[2].days[1].amount = 30_000 }],
     ['a missing last day', (b) => { b.challenges[1].days.pop() }],
     ['two days swapped out of order', (b) => { const d = b.challenges[1].days; [d[2], d[3]] = [d[3], d[2]] }],
     ['an end date that no longer matches the days', (b) => { b.challenges[2].config.endDate = '2027-04-30' }],
     ['a target that cannot be reached in the dates', (b) => { b.challenges[2].config.targetSek = 1 }],
     ['an impossible calendar date in the config', (b) => { b.challenges[2].config.startDate = '2026-02-30' }],
+    ['a target above the supported maximum', (b) => { b.challenges[2].config.targetSek = CHALLENGE_LIMITS.maxTargetSek + 1 }],
+    ['a challenge longer than the supported maximum', (b) => { b.challenges[2].config.endDate = '2031-03-31' }],
     ['a timestamp that is not ISO UTC', (b) => { b.exportedAt = '2027-01-06 09:00' }],
     ['a missing timestamp', (b) => { delete b.exportedAt }],
   ]
 
-  for (const [label, corrupt] of rejections) {
-    it(`rejects ${label} and leaves the device untouched`, async () => {
-      const repository = openRepository()
-      await populate(repository)
-      const before = await state(repository)
-      const backup = await exportV2(repository)
-      corrupt(backup)
-      await expect(repository.restoreBackup(JSON.stringify(backup))).rejects.toMatchObject({ name: 'BackupValidationError' })
-      expect(await state(repository)).toEqual(before)
-    })
+  for (const mode of [REPLACE, IMPORT]) {
+    for (const [label, corrupt] of rejections) {
+      it(`${mode.mode}: rejects ${label} and leaves the device untouched`, async () => {
+        const repository = openRepository()
+        await populate(repository)
+        const before = await state(repository)
+        const backup = await exportV2(repository)
+        corrupt(backup)
+        await expect(repository.restoreBackup(JSON.stringify(backup), mode)).rejects.toMatchObject({ name: 'BackupValidationError' })
+        expect(await state(repository)).toEqual(before)
+      })
+    }
   }
+
+  it('rejects more challenges than the supported maximum', async () => {
+    const repository = openRepository()
+    await populate(repository)
+    const backup = await exportV2(repository)
+    const template = backup.challenges[2]
+    backup.challenges = Array.from({ length: 51 }, (_, index) => ({ ...template, id: `many-${index}` }))
+    backup.activeChallengeId = 'many-0'
+    await expect(repository.restoreBackup(JSON.stringify(backup), IMPORT)).rejects.toMatchObject({ name: 'BackupValidationError' })
+  })
 
   it.each(['{not json', '[]', '"text"', 'null', ''])('rejects the non-backup payload %j', async (payload) => {
     const repository = openRepository()
     await populate(repository)
     const before = await state(repository)
-    await expect(repository.restoreBackup(payload)).rejects.toMatchObject({ name: 'BackupValidationError' })
+    await expect(repository.restoreBackup(payload, REPLACE)).rejects.toMatchObject({ name: 'BackupValidationError' })
+    await expect(repository.restoreBackup(payload, IMPORT)).rejects.toMatchObject({ name: 'BackupValidationError' })
     expect(await state(repository)).toEqual(before)
   })
 
-  it.each(['__challenge_app__', 'active'])('never lets a challenge id %j corrupt internal records (rejected or restored faithfully)', async (reservedId) => {
+  it.each(['__challenge_app__', 'active', 'legacy-v1-challenge'])('restores a challenge whose id is %j faithfully (no reserved ids)', async (reservedId) => {
     const source = openRepository()
     await populate(source)
     const backup = await exportV2(source)
     backup.challenges[0].id = reservedId
     if (backup.activeChallengeId === 'default-id') backup.activeChallengeId = reservedId
     const target = openRepository()
-    const outcome = await target.restoreBackup(JSON.stringify(backup)).then(() => 'restored', (error: Error) => error.name)
-    if (outcome === 'restored') {
-      expect((await target.listChallenges()).map((challenge) => challenge.id)).toContain(reservedId)
-      expect((await target.loadChallenge(reservedId))?.seed).toBe('b-default')
-      expect(await target.activeChallengeId()).toBe(backup.activeChallengeId)
-      expect(await target.listChallenges()).toHaveLength(4)
-    } else {
-      expect(outcome).toBe('BackupValidationError')
-      expect(await target.listChallenges()).toEqual([])
-    }
+    await target.restoreBackup(JSON.stringify(backup), REPLACE)
+    expect((await target.loadChallenge(reservedId))?.seed).toBe('b-default')
+    expect(await target.activeChallengeId()).toBe(backup.activeChallengeId)
+    expect(await target.listChallenges()).toHaveLength(4)
+  })
+})
+
+describe('G5. atomic rollback', () => {
+  async function failOnSecondEntryWrite(repository: SavingsRepository) {
+    const table = repository.database.challengeEntries
+    const original = table.bulkAdd.bind(table)
+    let calls = 0
+    vi.spyOn(table, 'bulkAdd').mockImplementation(((...args: Parameters<typeof original>) => {
+      calls += 1
+      return calls === 2 ? Promise.reject(new Error('disk full')) : original(...args)
+    }) as never)
+  }
+
+  it('replace: a failure half way restores every challenge, entry and the active id', async () => {
+    const source = openRepository()
+    await populate(source)
+    const backup = await source.exportBackup(EXPORTED_AT)
+    const target = openRepository()
+    await target.saveChallenge(createChallenge('survivor', DEFAULT_CHALLENGE_CONFIG, 'survivor'))
+    const before = await state(target)
+
+    await failOnSecondEntryWrite(target)
+    await expect(target.restoreBackup(backup, REPLACE)).rejects.toMatchObject({ name: 'PersistenceDatabaseError' })
+    vi.restoreAllMocks()
+
+    expect(await state(target)).toEqual(before)
+    await target.restoreBackup(backup, REPLACE)
+    expect(await target.listChallenges()).toHaveLength(4)
+  })
+
+  it('import-as-new: a failure half way leaves no half-imported challenge behind', async () => {
+    const source = openRepository()
+    await populate(source)
+    const backup = await source.exportBackup(EXPORTED_AT)
+    const target = openRepository()
+    await target.saveChallenge(createChallenge('survivor', DEFAULT_CHALLENGE_CONFIG, 'survivor'))
+    const before = await state(target)
+    const summariesBefore = await target.listChallengeSummaries()
+
+    await failOnSecondEntryWrite(target)
+    await expect(target.restoreBackup(backup, IMPORT)).rejects.toMatchObject({ name: 'PersistenceDatabaseError' })
+    vi.restoreAllMocks()
+
+    expect(await state(target)).toEqual(before)
+    expect(await target.listChallengeSummaries()).toEqual(summariesBefore)
+    expect(await target.database.challengeEntries.count()).toBe(181)
   })
 })
 
@@ -219,57 +398,93 @@ describe('F. old v1 JSON backup (exported by the launched app)', () => {
     expect(parsed.version).toBe(1)
   })
 
-  it('restores into an empty device as one active challenge with the default config', async () => {
+  it('imports into an empty device as one new active challenge with the default config', async () => {
     const original = playedChallenge('v1-backup-seed')
     const repository = openRepository()
-    await repository.restoreBackup(v1BackupJson(original))
+    const result = await repository.restoreBackup(v1BackupJson(original), IMPORT)
+    expect(result).toEqual({ mode: 'import-as-new', importedChallengeIds: ['new-1'], activeChallengeId: 'new-1' })
+
     const restored = await repository.listChallenges()
     expect(restored).toHaveLength(1)
+    expect(restored[0].id).toBe('new-1')
     expect(restored[0].seed).toBe('v1-backup-seed')
     expect(restored[0].config).toEqual(DEFAULT_CHALLENGE_CONFIG)
     expect(restored[0].days).toEqual(original.days)
-    expect(await repository.activeChallengeId()).toBe(restored[0].id)
-    expect(await repository.loadChallenge()).toEqual(restored[0])
+  })
+
+  it('labels the imported challenge as a legacy backup import', async () => {
+    const repository = openRepository()
+    await repository.restoreBackup(v1BackupJson(playedChallenge('labelled')), IMPORT)
+    const [summary] = await repository.listChallengeSummaries()
+    expect(summary).toMatchObject({ id: 'new-1', origin: 'legacy-v1-backup' })
+    expect(summary.sourceChallengeId).toBeUndefined()
   })
 
   it.each(['p1', 'p2', 'p3', 'p4'])('preserves all amounts, statuses and confirmations for seed %s', async (seed) => {
     const original = playedChallenge(seed)
     const repository = openRepository()
-    await repository.restoreBackup(v1BackupJson(original))
+    await repository.restoreBackup(v1BackupJson(original), IMPORT)
     const restored = (await repository.loadChallenge())!
+    expect(restored.seed).toBe(seed)
     expect(restored.days.map((day) => [day.date, day.amount, day.status])).toEqual(original.days.map((day) => [day.date, day.amount, day.status]))
   })
 
-  it('can be exported again as v2 and that file restores to the same challenge', async () => {
+  it('never replaces existing challenges: it is added next to them and the active one stays', async () => {
     const repository = openRepository()
-    await repository.restoreBackup(v1BackupJson(playedChallenge('re-export')))
+    await populate(repository)
+    const before = await state(repository)
+    const result = await repository.restoreBackup(v1BackupJson(playedChallenge('added')), IMPORT)
+
+    const after = await state(repository)
+    expect(after.challenges).toHaveLength(5)
+    expect(after.active).toBe('today-id')
+    expect(after.challenges.filter((challenge) => challenge.id !== result.importedChallengeIds[0])).toEqual(before.challenges)
+  })
+
+  it('importing the same v1 file twice creates two independent challenges with different ids', async () => {
+    const repository = openRepository()
+    const file = v1BackupJson(playedChallenge('twice'))
+    const first = await repository.restoreBackup(file, IMPORT)
+    const second = await repository.restoreBackup(file, IMPORT)
+    expect(first.importedChallengeIds[0]).not.toBe(second.importedChallengeIds[0])
+    expect(await repository.listChallenges()).toHaveLength(2)
+  })
+
+  it.each([
+    ['replace with confirmation', { mode: 'replace', confirmReplace: true }],
+    ['replace without confirmation', { mode: 'replace' }],
+    ['no options', undefined],
+  ])('refuses to apply a v1 file as %s and changes nothing', async (_label, options) => {
+    const repository = openRepository()
+    await populate(repository)
+    const before = await state(repository)
+    await expect(repository.restoreBackup(v1BackupJson(playedChallenge('x')), options as never)).rejects.toMatchObject({ name: 'BackupValidationError' })
+    expect(await state(repository)).toEqual(before)
+  })
+
+  it('can be exported again as v2 and that file replaces into another device with the same challenge', async () => {
+    const repository = openRepository()
+    await repository.restoreBackup(v1BackupJson(playedChallenge('re-export')), IMPORT)
     const v2 = await repository.exportBackup(EXPORTED_AT)
     expect(JSON.parse(v2)).toMatchObject({ version: 2 })
     const other = openRepository()
-    await other.restoreBackup(v2)
+    await other.restoreBackup(v2, REPLACE)
     expect(await state(other)).toEqual(await state(repository))
   })
 
-  it('replaces whatever challenges are on the device (a backup is a full snapshot)', async () => {
-    const repository = openRepository()
-    await populate(repository)
-    await repository.restoreBackup(v1BackupJson(playedChallenge('replacement')))
-    const remaining = await repository.listChallenges()
-    expect(remaining).toHaveLength(1)
-    expect(remaining[0].seed).toBe('replacement')
-  })
-
-  it('wins over untouched legacy v1 rows, which must not be re-imported afterwards', async () => {
+  it('sits next to a migrated v1 database: both exist, legacy tables stay untouched', async () => {
     const name = uniqueName('backup-vs-legacy')
-    await seedV1Challenge(name, createChallenge('legacy-rows-seed'))
+    const legacy = createChallenge('legacy-rows-seed')
+    await seedV1Challenge(name, legacy)
     const before = await snapshotLegacyTables(name)
     const repository = openRepository(name)
-    await repository.restoreBackup(v1BackupJson(playedChallenge('backup-seed')))
+    const result = await repository.restoreBackup(v1BackupJson(playedChallenge('backup-seed')), IMPORT)
+
+    const all = await repository.listChallenges()
+    expect(all.map((challenge) => challenge.seed).sort()).toEqual(['backup-seed', 'legacy-rows-seed'])
+    expect(await repository.activeChallengeId()).toBe('legacy-v1-challenge')
+    expect(result.importedChallengeIds).toEqual(['new-1'])
     repository.database.close()
-    const reopened = openRepository(name)
-    expect((await reopened.loadChallenge())?.seed).toBe('backup-seed')
-    expect(await reopened.listChallenges()).toHaveLength(1)
-    reopened.database.close()
     expect(await snapshotLegacyTables(name)).toEqual(before)
   })
 
@@ -284,6 +499,7 @@ describe('F. old v1 JSON backup (exported by the launched app)', () => {
     ['an amount of zero', (_b, c) => { c.days = withDay(c.days as never, 7, { amount: 0 }) }],
     ['a fractional amount', (_b, c) => { c.days = withDay(c.days as never, 7, { amount: 99.5 }) }],
     ['an unknown status', (_b, c) => { c.days = withDay(c.days as never, 7, { status: 'bogus' }) }],
+    ['amounts adding up to more than 50,000', (_b, c) => { c.days = withDay(c.days as never, 7, { amount: 400 }) }],
     ['days out of order', (_b, c) => { c.days = [...c.days].reverse() }],
     ['an invalid timestamp', (b) => { b.exportedAt = 'yesterday' }],
   ]
@@ -295,7 +511,7 @@ describe('F. old v1 JSON backup (exported by the launched app)', () => {
       const before = await state(repository)
       const backup = JSON.parse(v1BackupJson(createChallenge('invalid-v1'))) as Record<string, unknown>
       corrupt(backup, backup.challenge as { seed?: unknown; days: unknown[] })
-      await expect(repository.restoreBackup(JSON.stringify(backup))).rejects.toMatchObject({ name: 'BackupValidationError' })
+      await expect(repository.restoreBackup(JSON.stringify(backup), IMPORT)).rejects.toMatchObject({ name: 'BackupValidationError' })
       expect(await state(repository)).toEqual(before)
     })
   }

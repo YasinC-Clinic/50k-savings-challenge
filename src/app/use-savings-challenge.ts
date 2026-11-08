@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CHALLENGE, confirmDay, createChallenge, drawToday, getDayPresentation, recalculateAfterMisses, type Challenge, type Recovery } from '../domain/challenge'
-import { SavingsDatabase, SavingsRepository } from '../persistence/savings-repository'
+import { SavingsDatabase, SavingsRepository, describeBackup } from '../persistence/savings-repository'
 import { getDashboard, getMonthlyHistory, shouldRecover, stockholmDateKey } from './savings-view'
 
 function createSeed(): string {
@@ -87,7 +87,10 @@ export function useSavingsChallenge() {
   }, [repository])
   const restoreBackup = useCallback(async (backup: string) => {
     try {
-      await repository.restoreBackup(backup)
+      // Compatibility shim until the phase 5 import UI: v1 files import as a new challenge, v2 files replace.
+      const legacy = describeBackup(backup).version === 1
+      const result = await repository.restoreBackup(backup, legacy ? { mode: 'import-as-new' } : { mode: 'replace', confirmReplace: true })
+      if (legacy) await repository.setActiveChallenge(result.importedChallengeIds[0])
       const restored = await repository.loadChallenge()
       if (!restored) throw new Error('Restored backup contains no challenge')
       setChallenge(await reconcile(restored))

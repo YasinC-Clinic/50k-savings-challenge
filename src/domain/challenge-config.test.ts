@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CHALLENGE_LIMITS,
   DEFAULT_CHALLENGE_CONFIG,
   confirmDay,
   createChallenge,
@@ -80,6 +81,23 @@ describe('configuration validation', () => {
     mutable.targetSek = 1
     expect(challenge.config.endDate).toBe('2027-01-31')
     expect(challenge.config.targetSek).toBe(10_000)
+  })
+
+  it('enforces the size limits with specific errors, before doing any work over the date range', () => {
+    const started = performance.now()
+    expect(() => listChallengeDates(config({ startDate: '1000-01-01', endDate: '9999-12-31', targetSek: 1_000_000 }))).toThrow('longer than the supported maximum')
+    expect(() => listChallengeDates(config({ startDate: '2027-01-01', endDate: '2030-06-01', targetSek: 100_000 }))).toThrow('longer than the supported maximum')
+    expect(() => listChallengeDates(config({ targetSek: CHALLENGE_LIMITS.maxTargetSek + 1 }))).toThrow('above the supported maximum')
+    expect(() => listChallengeDates(config({ preferredMaximumSek: CHALLENGE_LIMITS.maxDailySek + 1 }))).toThrow('above the supported maximum')
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  it('accepts the longest supported challenge', () => {
+    const longest = config({ startDate: '2027-01-01', endDate: '2029-12-31', targetSek: 100_000 })
+    // 2027-2029 contains the leap day 2028-02-29, so three calendar years are 1,096 days.
+    expect(listChallengeDates(longest)).toHaveLength(1096)
+    expect(createChallenge('long', longest).days).toHaveLength(1096)
+    expect(1096).toBeLessThanOrEqual(CHALLENGE_LIMITS.maxDays)
   })
 
   it('uses an explicit id when given and derives a stable id otherwise', () => {
