@@ -1,8 +1,10 @@
 name: Deploy GitHub Pages
 
+# Deployment is deliberately MANUAL. Merging to main must never publish by itself,
+# because the live app holds real user data in IndexedDB and a half-finished
+# migration would ship instantly. Run this workflow by hand, from main only,
+# after the release checklist in docs/RELEASE.md is complete.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +18,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
