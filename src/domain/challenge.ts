@@ -7,6 +7,22 @@ export const CHALLENGE = {
   preferredMaximumSek: 500,
 } as const
 
+export interface ChallengeConfig {
+  targetSek: number
+  startDate: string
+  endDate: string
+  initialMinimumSek: number
+  preferredMaximumSek: number
+}
+
+export const DEFAULT_CHALLENGE_CONFIG: ChallengeConfig = {
+  targetSek: CHALLENGE.targetSek,
+  startDate: CHALLENGE.startDate,
+  endDate: CHALLENGE.endDate,
+  initialMinimumSek: CHALLENGE.initialMinimumSek,
+  preferredMaximumSek: CHALLENGE.preferredMaximumSek,
+}
+
 export type DayStatus = 'undrawn' | 'drawn' | 'confirmed' | 'missed'
 
 export interface ChallengeDay {
@@ -16,6 +32,8 @@ export interface ChallengeDay {
 }
 
 export interface Challenge {
+  id: string
+  config: ChallengeConfig
   seed: string
   days: ChallengeDay[]
 }
@@ -37,16 +55,15 @@ export interface RecoveryResult {
 }
 
 /** Builds calendar dates without converting through UTC, so Stockholm DST is irrelevant. */
-export function listChallengeDates(): string[] {
+export function listChallengeDates(config: ChallengeConfig = DEFAULT_CHALLENGE_CONFIG): string[] {
+  assertConfiguration(config)
   const dates: string[] = []
-  let year = 2027
-  let month = 1
-  let day = 1
+  let [year, month, day] = config.startDate.split('-').map(Number)
 
   while (true) {
     const key = toDateKey(year, month, day)
     dates.push(key)
-    if (key === CHALLENGE.endDate) return dates
+    if (key === config.endDate) return dates
 
     day += 1
     if (day > daysInMonth(year, month)) {
@@ -60,19 +77,22 @@ export function listChallengeDates(): string[] {
   }
 }
 
-export function createChallenge(seed: string | number): Challenge {
+export function createChallenge(seed: string | number, config: ChallengeConfig = DEFAULT_CHALLENGE_CONFIG, id = `challenge-${String(seed)}`): Challenge {
+  assertConfiguration(config)
   const normalizedSeed = String(seed)
   const amounts = allocateExact(
-    CHALLENGE.targetSek,
-    CHALLENGE.durationDays,
-    CHALLENGE.initialMinimumSek,
-    CHALLENGE.preferredMaximumSek,
+    config.targetSek,
+    listChallengeDates(config).length,
+    config.initialMinimumSek,
+    config.preferredMaximumSek,
     normalizedSeed,
   )
 
   return {
+    id,
+    config: { ...config },
     seed: normalizedSeed,
-    days: listChallengeDates().map((date, index) => ({ date, amount: amounts[index], status: 'undrawn' })),
+    days: listChallengeDates(config).map((date, index) => ({ date, amount: amounts[index], status: 'undrawn' })),
   }
 }
 
@@ -91,8 +111,8 @@ export function getDayPresentation(challenge: Challenge, date: string): DayPrese
  * accepted only to let a caller prove it is not trying to reveal a future value.
  */
 export function drawToday(challenge: Challenge, currentDate: string, requestedDate = currentDate): Challenge {
-  assertChallengeDate(currentDate)
-  assertChallengeDate(requestedDate)
+  assertChallengeDate(challenge.config, currentDate)
+  assertChallengeDate(challenge.config, requestedDate)
   if (requestedDate !== currentDate) throw new Error('Only the current challenge date can be drawn')
   const advanced = markPastUnconfirmedAsMissed(challenge, currentDate)
   const day = findDay(advanced, currentDate)
@@ -108,7 +128,7 @@ export function drawToday(challenge: Challenge, currentDate: string, requestedDa
 }
 
 export function confirmDay(challenge: Challenge, date: string): Challenge {
-  assertChallengeDate(date)
+  assertChallengeDate(challenge.config, date)
   const day = findDay(challenge, date)
   if (day.status === 'confirmed') throw new Error('This saving is already confirmed')
   if (day.status !== 'drawn') throw new Error('Only a drawn amount can be confirmed')
@@ -126,31 +146,31 @@ export function recalculateAfterMisses(challenge: Challenge, today: string, seed
   const committedTotal = advanced.days
     .filter((day) => day.status === 'confirmed' || day.status === 'drawn')
     .reduce((total, day) => total + day.amount, 0)
-  const needed = CHALLENGE.targetSek - committedTotal
-  const minimumRequired = eligible.length * CHALLENGE.initialMinimumSek
+  const needed = challenge.config.targetSek - committedTotal
+  const minimumRequired = eligible.length * challenge.config.initialMinimumSek
 
   if (eligible.length === 0 || needed < minimumRequired) {
     return {
       challenge: advanced,
-      recovery: { status: 'impossible', ceiling: null, message: 'The 50,000 SEK target cannot be reached by 30 June 2027 with the remaining eligible days.' },
+      recovery: { status: 'impossible', ceiling: null, message: `The ${challenge.config.targetSek} SEK target cannot be reached by ${challenge.config.endDate} with the remaining eligible days.` },
     }
   }
 
   const ceiling = Math.ceil(needed / eligible.length)
-  const maximum = Math.max(CHALLENGE.preferredMaximumSek, ceiling)
-  const amounts = allocateExact(needed, eligible.length, CHALLENGE.initialMinimumSek, maximum, `${challenge.seed}:recovery:${today}:${seed}`)
+  const maximum = Math.max(challenge.config.preferredMaximumSek, ceiling)
+  const amounts = allocateExact(needed, eligible.length, challenge.config.initialMinimumSek, maximum, `${challenge.seed}:recovery:${today}:${seed}`)
   const replacements = new Map(eligible.map((day, index) => [day.date, amounts[index]]))
   const recovered: Challenge = {
     ...advanced,
     days: advanced.days.map((day) => replacements.has(day.date) ? { ...day, amount: replacements.get(day.date)! } : day),
   }
-  const needsHigherCeiling = maximum > CHALLENGE.preferredMaximumSek
+  const needsHigherCeiling = maximum > challenge.config.preferredMaximumSek
 
   return {
     challenge: recovered,
     recovery: needsHigherCeiling
-      ? { status: 'needs_higher_ceiling', ceiling: maximum, message: `Recovery requires future daily amounts up to ${maximum} SEK; this exceeds the preferred 500 SEK ceiling.` }
-      : { status: 'ok', ceiling: maximum, message: 'Future undrawn amounts were redistributed within the preferred 500 SEK ceiling.' },
+      ? { status: 'needs_higher_ceiling', ceiling: maximum, message: `Recovery requires future daily amounts up to ${maximum} SEK; this exceeds the preferred ${challenge.config.preferredMaximumSek} SEK ceiling.` }
+      : { status: 'ok', ceiling: maximum, message: `Future undrawn amounts were redistributed within the preferred ${challenge.config.preferredMaximumSek} SEK ceiling.` },
   }
 }
 
@@ -222,8 +242,27 @@ function findDay(challenge: Challenge, date: string): ChallengeDay {
   return day
 }
 
-function assertChallengeDate(date: string): void {
-  if (!isCalendarDate(date) || date < CHALLENGE.startDate || date > CHALLENGE.endDate) throw new Error('Date is outside the challenge')
+function assertChallengeDate(config: ChallengeConfig, date: string): void {
+  if (!isCalendarDate(date) || date < config.startDate || date > config.endDate) throw new Error('Date is outside the challenge')
+}
+
+function assertConfiguration(config: ChallengeConfig): void {
+  if (!Number.isSafeInteger(config.targetSek) || !Number.isSafeInteger(config.initialMinimumSek) || !Number.isSafeInteger(config.preferredMaximumSek) || config.targetSek <= 0 || config.initialMinimumSek <= 0 || config.preferredMaximumSek < config.initialMinimumSek || !isCalendarDate(config.startDate) || !isCalendarDate(config.endDate) || config.endDate <= config.startDate) throw new Error('Challenge configuration is invalid')
+  const days = countDays(config.startDate, config.endDate)
+  if (config.targetSek < days * config.initialMinimumSek || config.targetSek > days * config.preferredMaximumSek) throw new Error('Challenge target is not achievable in the selected dates and range')
+}
+
+function countDays(startDate: string, endDate: string): number {
+  let count = 0
+  let cursor = startDate
+  while (cursor <= endDate) {
+    count += 1
+    const [year, month, day] = cursor.split('-').map(Number)
+    if (day < daysInMonth(year, month)) cursor = toDateKey(year, month, day + 1)
+    else if (month < 12) cursor = toDateKey(year, month + 1, 1)
+    else cursor = toDateKey(year + 1, 1, 1)
+  }
+  return count
 }
 
 function assertCalendarDate(date: string): void {

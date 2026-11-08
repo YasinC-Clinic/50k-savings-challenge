@@ -77,7 +77,7 @@ describe('backup export and restoration', () => {
 
     await target.restoreBackup(backup)
     expect(await target.loadChallenge()).toEqual(challenge)
-    expect(JSON.parse(backup)).toMatchObject({ format: '50k-savings-challenge-backup', version: 1, exportedAt: '2027-01-01T09:00:00.000Z' })
+    expect(JSON.parse(backup)).toMatchObject({ format: '50k-savings-challenge-backup', version: 2, exportedAt: '2027-01-01T09:00:00.000Z' })
   })
 
   it('rejects corrupt and incompatible backups before changing existing data', async () => {
@@ -105,8 +105,8 @@ describe('backup export and restoration', () => {
     const repository = createRepository()
     const original = createChallenge('atomic-original')
     await repository.saveChallenge(original)
-    const invalid = JSON.parse(createBackupJson(createChallenge('invalid'), '2027-01-02T09:00:00.000Z')) as { challenge: { days: Array<{ amount: number }> } }
-    invalid.challenge.days[0].amount = 0
+    const invalid = JSON.parse(createBackupJson(createChallenge('invalid'), '2027-01-02T09:00:00.000Z')) as { challenges: Array<{ days: Array<{ amount: number }> }> }
+    invalid.challenges[0].days[0].amount = 0
     await expect(repository.restoreBackup(JSON.stringify(invalid))).rejects.toBeInstanceOf(BackupValidationError)
     expect(await repository.loadChallenge()).toEqual(original)
   })
