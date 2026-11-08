@@ -1,6 +1,7 @@
 import { DEFAULT_CHALLENGE_CONFIG, type Challenge } from '../domain/challenge'
 import { InvalidChallengeError, isIsoTimestamp, isRecord, parseChallenge } from './challenge-validation'
 import { BackupValidationError } from './errors'
+import { EMPTY_LEDGER, parseLedger, sortLedger, type Ledger } from './ledger'
 import { CHALLENGE_ORIGINS, MAX_NAME_LENGTH, type ChallengeOrigin } from './savings-database'
 
 export const BACKUP_FORMAT = '50k-savings-challenge-backup'
@@ -30,6 +31,8 @@ export interface CurrentBackup {
   activeChallengeId: string
   challenges: Challenge[]
   meta: Record<string, ChallengeMeta>
+  /** Penalties, penalty payments and catch-ups. Null for files made before the ledger existed. */
+  ledger: Ledger | null
 }
 
 export type ParsedBackup = LegacyBackup | CurrentBackup
@@ -53,6 +56,7 @@ export function createBackupJson(
   activeChallengeId: string,
   exportedAt: string,
   meta: Record<string, ChallengeMeta> = {},
+  ledger: Ledger = EMPTY_LEDGER,
 ): string {
   if (!isIsoTimestamp(exportedAt)) throw new BackupValidationError('Backup export timestamp must be a valid ISO timestamp')
   const clean = challenges.map((challenge) => asBackupError(() => parseChallenge(challenge, { requireExactTotal: true })))
@@ -62,7 +66,7 @@ export function createBackupJson(
   }
   clean.sort((a, b) => a.id.localeCompare(b.id))
   const serialized = clean.map((challenge) => ({ ...challenge, ...definedMeta(meta[challenge.id]) }))
-  return JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt, activeChallengeId, challenges: serialized })
+  return JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt, activeChallengeId, challenges: serialized, ledger: sortLedger(ledger) })
 }
 
 /** Validates the WHOLE file. Nothing is written anywhere until this returns. */
@@ -127,7 +131,8 @@ function parseCurrentBackup(value: Record<string, unknown>, exportedAt: string):
   challenges.forEach((raw, index) => {
     meta[parsed[index].id] = parseMeta(raw)
   })
-  return { version: 2, exportedAt, activeChallengeId, challenges: parsed, meta }
+  const ledger = parseLedger(value.ledger, new Set(parsed.map((challenge) => challenge.id)))
+  return { version: 2, exportedAt, activeChallengeId, challenges: parsed, meta, ledger }
 }
 
 function parseMeta(raw: unknown): ChallengeMeta {

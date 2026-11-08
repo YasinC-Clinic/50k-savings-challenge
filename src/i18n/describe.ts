@@ -102,6 +102,12 @@ export function feedbackText(message: FeedbackMessage, i18n: I18n): string {
       return message.count === 1 ? t.feedback.importedOne : t.feedback.importedMany(message.count)
     case 'date-changed':
       return t.feedback.dateChanged
+    case 'shock-accepted':
+      return t.feedback.shockAccepted
+    case 'catch-up-confirmed':
+      return t.feedback.catchUpConfirmed
+    case 'penalty-paid':
+      return t.feedback.penaltyPaid
     case 'error':
       return errorMessage(message.error, i18n)
   }

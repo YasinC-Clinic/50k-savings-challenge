@@ -6,7 +6,9 @@ import {
   DURATION_OPTIONS,
   NEW_YEAR_DURATION,
   configForDuration,
+  dynamicBounds,
   type ChallengeConfig,
+  type DailyLimits,
   type DurationChoice,
 } from '../domain/challenge'
 import type { I18n } from '../i18n/i18n'
@@ -21,9 +23,13 @@ export interface ChallengeForm {
   /** Lowest and highest amount of a single day, as typed (whole kronor). */
   minDaily: string
   maxDaily: string
+  /** On: the daily range is calculated from target and duration, and adapts as the challenge goes on. */
+  autoRange: boolean
+  /** On: occasional Shock Days. */
+  shockDays: boolean
 }
 
-export type FormField = 'name' | 'target' | 'duration' | 'minDaily' | 'maxDaily'
+export type FormField = 'name' | 'target' | 'duration' | 'minDaily' | 'maxDaily' | 'autoRange' | 'shockDays'
 
 /** What the chosen duration turns into, calculated from today's Stockholm date. */
 export interface ChallengePlan {
@@ -56,7 +62,14 @@ export function defaultForm(existingCount: number, { t }: I18n): ChallengeForm {
     duration: DEFAULT_DURATION_MONTHS,
     minDaily: String(DEFAULT_DAILY_LIMITS.minimumSek),
     maxDaily: String(DEFAULT_DAILY_LIMITS.maximumSek),
+    autoRange: true,
+    shockDays: false,
   }
+}
+
+/** The range an automatic challenge starts with: derived from the target and the number of saving days. */
+export function automaticLimits(target: number, dayCount: number): DailyLimits {
+  return dynamicBounds(target, dayCount)
 }
 
 /**
@@ -87,18 +100,27 @@ export function validateForm(form: ChallengeForm, today: string, i18n: I18n): Fo
   if (form.name.trim().length > MAX_NAME_LENGTH) errors.name = i18n.t.form.errors.nameTooLong(MAX_NAME_LENGTH)
   if (!knownDuration) errors.duration = i18n.t.form.errors.chooseDuration
   checkTarget(target, errors, i18n)
-  checkDailyLimits(minimum, maximum, errors, i18n)
+  if (!form.autoRange) checkDailyLimits(minimum, maximum, errors, i18n)
 
   const plan = knownDuration ? planFor(today, form.duration) : null
-  const limitsOk = !errors.minDaily && !errors.maxDaily && minimum !== null && maximum !== null
-  if (plan && target !== null && !errors.target && limitsOk) {
-    checkPeriod({ plan, duration: form.duration, target, minimum, maximum }, errors, i18n)
+  let limits: DailyLimits | null = null
+  if (form.autoRange) {
+    if (plan && target !== null && !errors.target) {
+      limits = automaticLimits(target, plan.dayCount)
+      checkPeriod({ plan, duration: form.duration, target, minimum: 1, maximum: CHALLENGE_LIMITS.maxDailySek }, errors, i18n)
+      if (limits.maximumSek > CHALLENGE_LIMITS.maxDailySek) limits = null
+    }
+  } else if (minimum !== null && maximum !== null && !errors.minDaily && !errors.maxDaily) {
+    limits = { minimumSek: minimum, maximumSek: maximum }
+    if (plan && target !== null && !errors.target) checkPeriod({ plan, duration: form.duration, target, minimum, maximum }, errors, i18n)
   }
 
-  if (Object.keys(errors).length > 0 || target === null || minimum === null || maximum === null || plan === null) {
+  if (Object.keys(errors).length > 0 || target === null || limits === null || plan === null) {
     return { ok: false, errors }
   }
-  const config = configForDuration(today, form.duration, target, { minimumSek: minimum, maximumSek: maximum })
+  const config: ChallengeConfig = { ...configForDuration(today, form.duration, target, limits) }
+  if (form.autoRange) config.dynamicRange = true
+  if (form.shockDays) config.shockDays = true
   return { ok: true, value: { config, name: form.name.trim(), plan, averagePerDay: Math.round(target / plan.dayCount) } }
 }
 

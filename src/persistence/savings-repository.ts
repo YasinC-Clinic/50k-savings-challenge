@@ -1,4 +1,15 @@
 import type { Challenge } from '../domain/challenge'
+import {
+  isCompleted,
+  penalisableDates,
+  penaltyTotals,
+  planPenalties,
+  remainingTargetOre,
+  type CatchUpEntry,
+  type PenaltyEntry,
+  type PenaltyPayment,
+} from '../domain/ledger'
+import { sortLedger, type Ledger } from './ledger'
 import { BackupValidationError, PersistenceIntegrityError, toPersistenceError } from './errors'
 import {
   IMPORTED_V1_PLACEHOLDER_ID,
@@ -165,13 +176,79 @@ export class SavingsRepository {
     const clean = parseForWrite(challenge)
     const name = cleanName(options.name)
     return this.run(() =>
+      this.database.transaction('rw', this.writeTables(), () => this.writeChallenge(clean, name)),
+    )
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Ledger: penalties, penalty payments and catch-up savings (kept apart from the ordinary savings)
+  // ---------------------------------------------------------------------------------------------
+
+  /** Penalties, payments and catch-ups of every challenge: the permanent penalty pot lives here. */
+  async readLedger(): Promise<Ledger> {
+    return this.run(() => this.loadLedger())
+  }
+
+  /**
+   * Writes the 3% penalty of every missed date that has none yet, in one transaction. Safe to call any number of times,
+   * from any number of tabs: a date that already has a penalty is skipped. No penalties once the target is reached.
+   */
+  async accruePenalties(challengeId: string, today: string): Promise<PenaltyEntry[]> {
+    return this.run(() =>
       this.database.transaction('rw', this.writeTables(), async () => {
-        const existing = await this.database.challengeRecords.get(clean.id)
-        if (existing) await this.assertCompatibleWithStored(existing, clean)
-        assertTotalsForWrite(clean)
-        if (!existing) await this.database.challengeRecords.put(this.newRecord(clean, 'created', { name }))
-        await this.database.challengeEntries.bulkPut(toEntryRows(clean))
-        await this.activateIfNone(clean.id)
+        const start = await this.ensurePenaltiesStart(today)
+        const record = await this.database.challengeRecords.get(challengeId)
+        if (!record) return []
+        const challenge = await this.readChallenge(record)
+        const catchUps = await this.database.catchUpsOf(challengeId).toArray()
+        if (isCompleted(challenge, catchUps)) return []
+        const entries = planPenalties({
+          challengeId,
+          remainingOre: remainingTargetOre(challenge, catchUps),
+          existing: await this.database.penaltiesOf(challengeId).toArray(),
+          missedDates: penalisableDates(challenge, start),
+          accruedAt: this.now(),
+        })
+        if (entries.length > 0) await this.database.penalties.bulkAdd(entries)
+        return entries
+      }),
+    )
+  }
+
+  /** The user confirms that they paid part of a challenge's penalties themselves. Never more than what is outstanding. */
+  async recordPenaltyPayment(challengeId: string, amountOre: number): Promise<PenaltyPayment> {
+    return this.run(() =>
+      this.database.transaction('rw', this.writeTables(), async () => {
+        const penalties = await this.database.penaltiesOf(challengeId).toArray()
+        const payments = (await this.database.penaltyPayments.toArray()).filter((payment) => payment.challengeId === challengeId)
+        const { outstandingOre } = penaltyTotals(penalties, payments)
+        if (!Number.isSafeInteger(amountOre) || amountOre < 1 || amountOre > outstandingOre) {
+          throw new PersistenceIntegrityError('A payment must be between 1 öre and the outstanding penalty')
+        }
+        const payment: PenaltyPayment = { id: this.createId(), challengeId, amountOre, paidAt: this.now() }
+        await this.database.penaltyPayments.add(payment)
+        return payment
+      }),
+    )
+  }
+
+  /**
+   * Saves one catch-up step together with the re-spread upcoming days, atomically. A catch-up is drawn first (fixed
+   * amount) and confirmed later; a confirmed one never changes. Only a missed day can be caught up.
+   */
+  async saveChallengeWithCatchUp(challenge: Challenge, entry: CatchUpEntry): Promise<void> {
+    const clean = parseForWrite(challenge)
+    return this.run(() =>
+      this.database.transaction('rw', this.writeTables(), async () => {
+        const day = clean.days.find((candidate) => candidate.date === entry.date)
+        if (entry.challengeId !== clean.id || day?.status !== 'missed') throw new PersistenceIntegrityError('Only a missed day can be caught up')
+        if (!Number.isSafeInteger(entry.amount) || entry.amount < 1) throw new PersistenceIntegrityError('A catch-up amount must be a positive whole number')
+        const stored = await this.database.catchUps.get([entry.challengeId, entry.date])
+        if (stored?.status === 'confirmed') throw new PersistenceIntegrityError('Confirmed catch-ups are immutable')
+        if (stored && stored.amount !== entry.amount) throw new PersistenceIntegrityError('A drawn catch-up amount is fixed')
+        if (!stored && entry.status !== 'drawn') throw new PersistenceIntegrityError('A catch-up must be drawn before it is confirmed')
+        await this.database.catchUps.put(entry)
+        await this.writeChallenge(clean)
       }),
     )
   }
@@ -189,7 +266,7 @@ export class SavingsRepository {
       for (const record of await this.database.challengeRecords.toArray()) {
         meta[record.id] = { name: record.name, origin: record.origin }
       }
-      return createBackupJson(challenges, active, exportedAt, meta)
+      return createBackupJson(challenges, active, exportedAt, meta, await this.loadLedger())
     })
   }
 
@@ -259,7 +336,30 @@ export class SavingsRepository {
   }
 
   private writeTables() {
-    return [this.database.challengeRecords, this.database.challengeEntries, this.database.appMeta]
+    const db = this.database
+    return [db.challengeRecords, db.challengeEntries, db.appMeta, db.penalties, db.penaltyPayments, db.catchUps]
+  }
+
+  private async loadLedger(): Promise<Ledger> {
+    const db = this.database
+    return sortLedger({ penalties: await db.penalties.toArray(), payments: await db.penaltyPayments.toArray(), catchUps: await db.catchUps.toArray() })
+  }
+
+  private async writeChallenge(clean: Challenge, name?: string): Promise<void> {
+    const existing = await this.database.challengeRecords.get(clean.id)
+    if (existing) await this.assertCompatibleWithStored(existing, clean)
+    assertTotalsForWrite(clean)
+    if (!existing) await this.database.challengeRecords.put(this.newRecord(clean, 'created', { name }))
+    await this.database.challengeEntries.bulkPut(toEntryRows(clean))
+    await this.activateIfNone(clean.id)
+  }
+
+  /** The day the penalty feature first ran on this device. Days missed earlier are never penalised retroactively. */
+  private async ensurePenaltiesStart(today: string): Promise<string> {
+    const row = await this.database.appMeta.get(META_KEYS.penaltiesStartDate)
+    if (typeof row?.value === 'string') return row.value
+    await this.database.appMeta.put({ key: META_KEYS.penaltiesStartDate, value: today })
+    return today
   }
 
   private async readActiveId(): Promise<string | null> {
@@ -331,6 +431,13 @@ export class SavingsRepository {
       await this.database.challengeRecords.put(this.newRecord(challenge, meta?.origin ?? 'backup-restore', { name: meta?.name }))
       await this.database.challengeEntries.bulkAdd(toEntryRows(challenge))
     }
+    // A file with a ledger is a complete snapshot of it; an older file has none, so the device's own ledger is left alone.
+    if (backup.ledger) {
+      await Promise.all([this.database.penalties.clear(), this.database.penaltyPayments.clear(), this.database.catchUps.clear()])
+      await this.database.penalties.bulkAdd(backup.ledger.penalties)
+      await this.database.penaltyPayments.bulkAdd(backup.ledger.payments)
+      await this.database.catchUps.bulkAdd(backup.ledger.catchUps)
+    }
     await this.database.appMeta.put({ key: META_KEYS.activeChallengeId, value: backup.activeChallengeId })
     return {
       mode: 'replace',
@@ -343,6 +450,7 @@ export class SavingsRepository {
     const sources = backup.version === 1 ? [backup.challenge] : backup.challenges
     const origin: ChallengeOrigin = backup.version === 1 ? 'legacy-v1-backup' : 'backup-import'
     const importedIds: string[] = []
+    const idMap = new Map<string, string>()
 
     for (const source of sources) {
       const id = await this.freshChallengeId(importedIds)
@@ -352,6 +460,16 @@ export class SavingsRepository {
       await this.database.challengeRecords.put(this.newRecord(imported, origin, { name, sourceChallengeId }))
       await this.database.challengeEntries.bulkAdd(toEntryRows(imported))
       importedIds.push(id)
+      idMap.set(source.id, id)
+    }
+
+    if (backup.version === 2 && backup.ledger) {
+      const mapped = (challengeId: string) => idMap.get(challengeId) ?? challengeId
+      await this.database.penalties.bulkAdd(backup.ledger.penalties.map((entry) => ({ ...entry, challengeId: mapped(entry.challengeId) })))
+      await this.database.catchUps.bulkAdd(backup.ledger.catchUps.map((entry) => ({ ...entry, challengeId: mapped(entry.challengeId) })))
+      await this.database.penaltyPayments.bulkAdd(
+        backup.ledger.payments.map((payment) => ({ ...payment, id: this.createId(), challengeId: mapped(payment.challengeId) })),
+      )
     }
 
     await this.activateIfNone(importedIds[0])

@@ -569,3 +569,178 @@ button:disabled {
     transition: none;
   }
 }
+
+/* ------------------------------------------------------------------------------------------------
+   Shock Days, catch-up, penalty pot and summary. Mobile-first: everything stacks, buttons are full width.
+   ------------------------------------------------------------------------------------------------ */
+
+.bolt {
+  display: inline-block;
+  color: #ffd84a;
+  text-shadow: 0 0 10px rgba(255, 216, 74, 0.55);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.toggle-row input[type='checkbox'] {
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-top: 0.05rem;
+  accent-color: var(--gold-light);
+}
+
+.shock-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 216, 74, 0.55);
+  background:
+    linear-gradient(135deg, rgba(255, 216, 74, 0.14), rgba(255, 216, 74, 0) 55%),
+    var(--surface, #14141c);
+  box-shadow: 0 0 0 1px rgba(255, 216, 74, 0.12), 0 12px 40px -12px rgba(255, 216, 74, 0.35);
+}
+
+.shock-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, #fff3a8, #ffd84a 45%, #f2a900);
+}
+
+.shock-card h2 {
+  color: #ffd84a;
+  letter-spacing: 0.02em;
+}
+
+.shock-amount {
+  color: #fff3a8;
+  text-shadow: 0 0 22px rgba(255, 216, 74, 0.45);
+  animation: shock-flash 0.5s ease-out;
+}
+
+.shock-actions {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.shock-accept {
+  background: linear-gradient(135deg, #ffe66d, #f2a900);
+  color: #1a1400;
+}
+
+.shock-again {
+  margin-top: 0;
+  border-color: rgba(255, 216, 74, 0.5);
+  color: #ffd84a;
+}
+
+@keyframes shock-flash {
+  from {
+    opacity: 0.3;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shock-amount {
+    animation: none;
+  }
+}
+
+@media (min-width: 30rem) {
+  .shock-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.catchup-banner b {
+  display: block;
+}
+
+.catchup-banner .secondary-button {
+  margin-top: 0.7rem;
+}
+
+.catchup-progress {
+  color: var(--gold-light);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pot-card,
+.summary-card {
+  margin-top: 1.4rem;
+  padding: 1.1rem 1.1rem 1.2rem;
+  border: 1px solid rgba(255, 216, 74, 0.25);
+  border-radius: 0.9rem;
+  background: rgba(255, 216, 74, 0.04);
+}
+
+.pot-intro,
+.pot-empty {
+  margin-top: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+.pot-subheading {
+  margin-top: 1.1rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pot-totals {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.8rem 0 0;
+}
+
+.pot-totals > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.88rem;
+}
+
+.pot-totals dt {
+  color: var(--text-secondary);
+}
+
+.pot-totals dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.pot-list {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pot-list li {
+  padding-top: 0.8rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pot-list .secondary-button {
+  margin-top: 0.7rem;
+}

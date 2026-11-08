@@ -20,6 +20,13 @@ export interface ChallengeConfig {
   endDate: string
   initialMinimumSek: number
   preferredMaximumSek: number
+  /**
+   * When true the daily range is derived from what is left (see dynamicBounds) instead of staying fixed. Only new
+   * challenges set it; every existing challenge has no such field and keeps its original behaviour.
+   */
+  dynamicRange?: boolean
+  /** Opt-in: occasional Shock Days with a clearly higher amount that the user may accept or draw again. */
+  shockDays?: boolean
 }
 
 export const DEFAULT_CHALLENGE_CONFIG: ChallengeConfig = {
@@ -146,15 +153,17 @@ export function confirmDay(challenge: Challenge, date: string): Challenge {
  * Marks all prior unresolved entries as missed, then redistributes only undrawn
  * current/future amounts. Confirmed and already drawn values are never changed.
  */
-export function recalculateAfterMisses(challenge: Challenge, today: string, seed: string | number): RecoveryResult {
+export function recalculateAfterMisses(challenge: Challenge, today: string, seed: string | number, extraCommittedSek = 0): RecoveryResult {
   assertCalendarDate(today)
   const advanced = markPastUnconfirmedAsMissed(challenge, today)
   const eligible = advanced.days.filter((day) => day.date >= today && day.status === 'undrawn')
-  const committedTotal = advanced.days
-    .filter((day) => day.status === 'confirmed' || day.status === 'drawn')
-    .reduce((total, day) => total + day.amount, 0)
+  // extraCommittedSek: amounts that count towards the target but live outside the daily entries (catch-up savings).
+  const committedTotal =
+    advanced.days.filter((day) => day.status === 'confirmed' || day.status === 'drawn').reduce((total, day) => total + day.amount, 0) +
+    extraCommittedSek
   const needed = challenge.config.targetSek - committedTotal
-  const minimumRequired = eligible.length * challenge.config.initialMinimumSek
+  const dynamic = challenge.config.dynamicRange === true
+  const minimumRequired = eligible.length * (dynamic ? 1 : challenge.config.initialMinimumSek)
 
   if (eligible.length === 0 || needed < minimumRequired) {
     return {
@@ -163,15 +172,18 @@ export function recalculateAfterMisses(challenge: Challenge, today: string, seed
     }
   }
 
-  const ceiling = Math.ceil(needed / eligible.length)
-  const maximum = Math.max(challenge.config.preferredMaximumSek, ceiling)
-  const amounts = allocateExact(needed, eligible.length, challenge.config.initialMinimumSek, maximum, `${challenge.seed}:recovery:${today}:${seed}`)
+  // A dynamic-range challenge re-derives its range from what is left; a fixed-range one keeps its own limits.
+  const bounds = dynamic
+    ? dynamicBounds(needed, eligible.length)
+    : { minimumSek: challenge.config.initialMinimumSek, maximumSek: Math.max(challenge.config.preferredMaximumSek, Math.ceil(needed / eligible.length)) }
+  const maximum = bounds.maximumSek
+  const amounts = allocateExact(needed, eligible.length, bounds.minimumSek, maximum, `${challenge.seed}:recovery:${today}:${seed}`)
   const replacements = new Map(eligible.map((day, index) => [day.date, amounts[index]]))
   const recovered: Challenge = {
     ...advanced,
     days: advanced.days.map((day) => replacements.has(day.date) ? { ...day, amount: replacements.get(day.date)! } : day),
   }
-  const needsHigherCeiling = maximum > challenge.config.preferredMaximumSek
+  const needsHigherCeiling = !dynamic && maximum > challenge.config.preferredMaximumSek
 
   return {
     challenge: recovered,
@@ -211,7 +223,18 @@ function allocateExact(total: number, count: number, minimum: number, maximum: n
   return allocated
 }
 
-function seededRandom(seed: string): () => number {
+/**
+ * A sensible daily range for what is still to be saved: it always contains the average (so the target stays achievable),
+ * varies around it (40% to 180% of the average) and never exceeds a bounded multiple, so amounts stay reasonable.
+ * 10,000 SEK over 182 days gives 21-99 SEK; 100,000 SEK gives 218-990 SEK.
+ */
+export function dynamicBounds(neededSek: number, days: number): DailyLimits {
+  const average = neededSek / days
+  const minimumSek = Math.max(1, Math.floor(average * 0.4))
+  return { minimumSek, maximumSek: Math.max(minimumSek, Math.ceil(average * 1.8)) }
+}
+
+export function seededRandom(seed: string): () => number {
   let state = 2166136261
   for (let index = 0; index < seed.length; index += 1) {
     state ^= seed.charCodeAt(index)
@@ -235,7 +258,7 @@ function shuffledIndices(count: number, random: () => number): number[] {
   return indices
 }
 
-function randomInteger(minimum: number, maximum: number, random: () => number): number {
+export function randomInteger(minimum: number, maximum: number, random: () => number): number {
   return minimum + Math.floor(random() * (maximum - minimum + 1))
 }
 

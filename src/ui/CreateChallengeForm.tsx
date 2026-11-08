@@ -2,7 +2,7 @@ import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { DURATION_OPTIONS } from '../domain/challenge'
 import type { NewChallengeInput } from '../app/use-savings-app'
 import { useI18n } from '../i18n/LanguageProvider'
-import { defaultForm, durationLabel, parseAmount, planFor, validateForm, type ChallengeForm, type FormField } from './create-challenge-form'
+import { automaticLimits, defaultForm, durationLabel, parseAmount, planFor, validateForm, type ChallengeForm, type FormField } from './create-challenge-form'
 
 interface CreateChallengeFormProps {
   /** Today's date in Europe/Stockholm. This is always the start date of the new challenge. */
@@ -30,6 +30,8 @@ export function CreateChallengeForm({ today, existingCount, submitLabel, onSubmi
   const target = parseAmount(form.target)
   const minimum = parseAmount(form.minDaily)
   const maximum = parseAmount(form.maxDaily)
+  const autoLimits = target !== null && target >= 1 ? automaticLimits(target, plan.dayCount) : null
+  const shownLimits = form.autoRange ? autoLimits : minimum !== null && maximum !== null ? { minimumSek: minimum, maximumSek: maximum } : null
 
   const update = <Field extends FormField>(field: Field, value: ChallengeForm[Field]) => {
     setForm((previous) => ({ ...previous, [field]: value }))
@@ -79,26 +81,46 @@ export function CreateChallengeForm({ today, existingCount, submitLabel, onSubmi
         </div>
       </fieldset>
 
-      <div className="field-pair">
-        <Field id={`${formId}-min`} label={t.form.minLabel} error={errors.minDaily}>
-          <input
-            id={`${formId}-min`}
-            inputMode="numeric"
-            autoComplete="off"
-            value={form.minDaily}
-            onChange={(event) => update('minDaily', event.target.value)}
-          />
-        </Field>
-        <Field id={`${formId}-max`} label={t.form.maxLabel} error={errors.maxDaily}>
-          <input
-            id={`${formId}-max`}
-            inputMode="numeric"
-            autoComplete="off"
-            value={form.maxDaily}
-            onChange={(event) => update('maxDaily', event.target.value)}
-          />
-        </Field>
-      </div>
+      <label className="toggle-row">
+        <input type="checkbox" checked={form.autoRange} onChange={(event) => update('autoRange', event.target.checked)} />
+        <span>{t.form.autoLabel}</span>
+      </label>
+      {form.autoRange ? (
+        <p className="form-note" aria-live="polite">
+          {autoLimits ? `${t.form.autoHint(fmt.sek(autoLimits.minimumSek), fmt.sek(autoLimits.maximumSek))} ` : ''}
+          {t.form.autoExplain}
+        </p>
+      ) : (
+        <div className="field-pair">
+          <Field id={`${formId}-min`} label={t.form.minLabel} error={errors.minDaily}>
+            <input
+              id={`${formId}-min`}
+              inputMode="numeric"
+              autoComplete="off"
+              value={form.minDaily}
+              onChange={(event) => update('minDaily', event.target.value)}
+            />
+          </Field>
+          <Field id={`${formId}-max`} label={t.form.maxLabel} error={errors.maxDaily}>
+            <input
+              id={`${formId}-max`}
+              inputMode="numeric"
+              autoComplete="off"
+              value={form.maxDaily}
+              onChange={(event) => update('maxDaily', event.target.value)}
+            />
+          </Field>
+        </div>
+      )}
+
+      <label className="toggle-row shock-toggle">
+        <input type="checkbox" checked={form.shockDays} onChange={(event) => update('shockDays', event.target.checked)} />
+        <span>
+          <span aria-hidden="true">⚡ </span>
+          {t.form.shockLabel}
+        </span>
+      </label>
+      <p className="form-note">{t.form.shockHint}</p>
 
       <dl className="plan-summary" aria-label={t.form.summaryLabel} aria-live="polite">
         <div>
@@ -121,7 +143,7 @@ export function CreateChallengeForm({ today, existingCount, submitLabel, onSubmi
         </div>
         <div>
           <dt>{t.form.dailyAmounts}</dt>
-          <dd>{minimum === null || maximum === null ? '–' : `${fmt.sek(minimum)} – ${fmt.sek(maximum)}`}</dd>
+          <dd>{shownLimits ? `${fmt.sek(shownLimits.minimumSek)} – ${fmt.sek(shownLimits.maximumSek)}` : '–'}</dd>
         </div>
       </dl>
       {validation.ok && (

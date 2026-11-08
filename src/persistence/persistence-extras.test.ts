@@ -167,7 +167,16 @@ describe('raw export covers every table', () => {
     const repository = openRepository()
     await repository.saveChallenge(createChallenge('raw', DEFAULT_CHALLENGE_CONFIG, 'raw'), { name: 'Rå' })
     const raw = JSON.parse(await repository.exportRawLegacyData('2027-01-01T10:00:00.000Z')) as { tables: Record<string, unknown[]> }
-    expect(Object.keys(raw.tables).sort()).toEqual(['appMeta', 'challengeEntries', 'challengeRecords', 'challenges', 'dailyEntries'])
+    expect(Object.keys(raw.tables).sort()).toEqual([
+      'appMeta',
+      'catchUps',
+      'challengeEntries',
+      'challengeRecords',
+      'challenges',
+      'dailyEntries',
+      'penalties',
+      'penaltyPayments',
+    ])
     expect(raw.tables.challengeEntries).toHaveLength(181)
     expect(raw.tables.challengeRecords).toHaveLength(1)
   })

@@ -1,5 +1,6 @@
 import Dexie, { type Collection, type Table } from 'dexie'
 import type { Challenge, ChallengeConfig, ChallengeDay, DayStatus } from '../domain/challenge'
+import type { CatchUpEntry, PenaltyEntry, PenaltyPayment } from '../domain/ledger'
 
 /** Where a challenge came from. Lets the UI label migrated and imported challenges later. */
 export type ChallengeOrigin = 'created' | 'legacy-v1-migration' | 'legacy-v1-backup' | 'backup-import' | 'backup-restore'
@@ -47,6 +48,8 @@ export interface AppMetaRow {
 export const META_KEYS = {
   activeChallengeId: 'activeChallengeId',
   legacyMigration: 'legacyMigration',
+  /** The day the penalty feature first ran on this device. Days missed before it are never penalised. */
+  penaltiesStartDate: 'penaltiesStartDate',
 } as const
 
 /**
@@ -62,6 +65,9 @@ export class SavingsDatabase extends Dexie {
   challengeRecords!: Table<ChallengeRecord, string>
   challengeEntries!: Table<ChallengeEntryRow, [string, string]>
   appMeta!: Table<AppMetaRow, string>
+  penalties!: Table<PenaltyEntry, [string, string]>
+  penaltyPayments!: Table<PenaltyPayment, string>
+  catchUps!: Table<CatchUpEntry, [string, string]>
 
   constructor(name = '50k-savings-challenge') {
     super(name)
@@ -74,6 +80,22 @@ export class SavingsDatabase extends Dexie {
       challengeEntries: '[challengeId+date]',
       appMeta: 'key',
     })
+    // Version 3 only ADDS the ledger tables (penalties, penalty payments, catch-ups). No existing table or row changes.
+    this.version(3).stores({
+      penalties: '[challengeId+date]',
+      penaltyPayments: 'id',
+      catchUps: '[challengeId+date]',
+    })
+  }
+
+  /** Penalties of ONE challenge, oldest first. */
+  penaltiesOf(challengeId: string): Collection<PenaltyEntry, [string, string]> {
+    return this.penalties.where('[challengeId+date]').between([challengeId, Dexie.minKey], [challengeId, Dexie.maxKey])
+  }
+
+  /** Catch-up entries of ONE challenge, oldest first. */
+  catchUpsOf(challengeId: string): Collection<CatchUpEntry, [string, string]> {
+    return this.catchUps.where('[challengeId+date]').between([challengeId, Dexie.minKey], [challengeId, Dexie.maxKey])
   }
 
   /** All entries of ONE challenge, ordered by date. Every read goes through here for challengeId isolation. */

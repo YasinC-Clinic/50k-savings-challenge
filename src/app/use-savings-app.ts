@@ -9,6 +9,17 @@ import {
   type Recovery,
 } from '../domain/challenge'
 import {
+  acceptShockDay,
+  catchUpDates,
+  catchUpRange,
+  drawCatchUpAmount,
+  proposeShockAmount,
+  rebalanceUpcoming,
+  shockRange,
+  type CatchUpEntry,
+} from '../domain/ledger'
+import { EMPTY_LEDGER, type Ledger } from '../persistence/ledger'
+import {
   LegacyDataDamagedError,
   PersistenceVersionError,
   SavingsDatabase,
@@ -57,6 +68,9 @@ export type FeedbackMessage =
   | { kind: 'restored' }
   | { kind: 'imported'; count: number }
   | { kind: 'date-changed' }
+  | { kind: 'shock-accepted' }
+  | { kind: 'catch-up-confirmed' }
+  | { kind: 'penalty-paid' }
   | { kind: 'error'; error: unknown }
 
 export interface Feedback {
@@ -136,6 +150,9 @@ export function useSavingsApp(services: AppServices) {
   const [notice, setNotice] = useState<RecoveryNoticeData | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
+  const [ledger, setLedger] = useState<Ledger>(EMPTY_LEDGER)
+  const [catchUpOpen, setCatchUpOpen] = useState(false)
+  const [shockDraw, setShockDraw] = useState<{ key: string; attempt: number; amount: number } | null>(null)
   const busy = useRef(false)
   const loadToken = useRef(0)
 
@@ -157,13 +174,20 @@ export function useSavingsApp(services: AppServices) {
       const current = active ? byId.get(active) : undefined
       let recoveryResult: RecoveryNoticeData | null = null
       if (current && shouldRecover(current, todayKey)) {
-        const result = recalculateAfterMisses(current, todayKey, randomId())
+        // Catch-up amounts are already fixed outside the daily entries, so the re-spread must leave room for them.
+        const stored = await repository.readLedger()
+        const fixedSek = stored.catchUps.filter((entry) => entry.challengeId === current.id).reduce((total, entry) => total + entry.amount, 0)
+        const result = recalculateAfterMisses(current, todayKey, randomId(), fixedSek)
         await repository.saveChallenge(result.challenge)
         byId.set(current.id, result.challenge)
         recoveryResult = { recovery: result.recovery, config: current.config }
       }
+      // Penalties for missed days: idempotent, separate from the savings, never for a completed target.
+      if (current) await repository.accruePenalties(current.id, todayKey)
+      const freshLedger = await repository.readLedger()
 
       if (token !== loadToken.current) return
+      setLedger(freshLedger)
       setItems(
         summaries.flatMap((summary) => {
           const challenge = byId.get(summary.id)
@@ -257,6 +281,7 @@ export function useSavingsApp(services: AppServices) {
     await repository.saveChallenge(challenge, { name: input.name })
     await repository.setActiveChallenge(id)
     setNotice(null)
+    setCatchUpOpen(false)
     await reload(today)
     setFeedback({ tone: 'success', message: { kind: 'created' } })
     return id
@@ -265,6 +290,7 @@ export function useSavingsApp(services: AppServices) {
   const switchChallenge = useCallback((id: string) => act(async () => {
     await repository.setActiveChallenge(id)
     setNotice(null)
+    setCatchUpOpen(false)
     await reload(today)
   }), [act, reload, repository, today])
 
@@ -287,6 +313,7 @@ export function useSavingsApp(services: AppServices) {
       await repository.setActiveChallenge(result.importedChallengeIds[0])
     }
     setNotice(null)
+    setCatchUpOpen(false)
     await reload(today)
     const count = result.importedChallengeIds.length
     setFeedback({ tone: 'success', message: mode === 'replace' ? { kind: 'restored' } : { kind: 'imported', count } })
@@ -304,7 +331,107 @@ export function useSavingsApp(services: AppServices) {
     void reload(today)
   }, [reload, today])
 
+  const activeCatchUps = useMemo(
+    () => (active ? ledger.catchUps.filter((entry) => entry.challengeId === active.id) : []),
+    [active, ledger],
+  )
+  const hasDrawnCatchUp = activeCatchUps.some((entry) => entry.status === 'drawn')
+
+  // ---- Shock Day: only a proposal. Nothing is stored until the user accepts, and never while catching up. -----
+  const shock = useMemo(() => {
+    if (!active || catchUpOpen || hasDrawnCatchUp) return null
+    const range = shockRange(active.challenge, today, activeCatchUps)
+    if (!range) return null
+    const key = `${active.id}:${today}`
+    const seed = `${active.challenge.seed}:${today}`
+    const stored = shockDraw?.key === key ? shockDraw : null
+    const fits = stored !== null && stored.amount >= range.minimumSek && stored.amount <= range.maximumSek
+    const attempt = stored?.attempt ?? 0
+    const amount = stored !== null && fits ? stored.amount : proposeShockAmount(range, null, seed, attempt)
+    return { key, seed, range, amount, attempt }
+  }, [active, activeCatchUps, catchUpOpen, hasDrawnCatchUp, shockDraw, today])
+
+  const drawShockAgain = useCallback(() => {
+    if (!shock) return
+    const attempt = shock.attempt + 1
+    setShockDraw({ key: shock.key, attempt, amount: proposeShockAmount(shock.range, shock.amount, shock.seed, attempt) })
+  }, [shock])
+
+  const acceptShock = useCallback(() => act(async () => {
+    if (!active || !shock || dateMovedOn()) return
+    const next = acceptShockDay(active.challenge, today, shock.amount, activeCatchUps, randomId())
+    await repository.saveChallenge(next)
+    replaceChallenge(next)
+    setFeedback({ tone: 'info', message: { kind: 'shock-accepted' } })
+  }), [act, active, activeCatchUps, dateMovedOn, repository, replaceChallenge, shock, today])
+
+  // ---- Catch-up: one missed day at a time, each with its own fixed amount that counts only once confirmed. ------
+  const pendingCatchUps = useMemo(() => (active ? catchUpDates(active.challenge, activeCatchUps) : []), [active, activeCatchUps])
+  const currentCatchUpDate = pendingCatchUps[0] ?? null
+  const currentCatchUp = currentCatchUpDate ? (activeCatchUps.find((entry) => entry.date === currentCatchUpDate && entry.status === 'drawn') ?? null) : null
+  const confirmedCatchUps = activeCatchUps.filter((entry) => entry.status === 'confirmed').length
+  const catchUpNoRoom = Boolean(active && currentCatchUpDate && !currentCatchUp && catchUpRange(active.challenge, today, activeCatchUps) === null)
+
+  /** Draws and stores (as "drawn", not saved) the amount for the oldest missed day that has none. */
+  const drawCatchUpFor = useCallback(async (challenge: Challenge, entries: CatchUpEntry[]): Promise<boolean> => {
+    const date = catchUpDates(challenge, entries)[0]
+    if (!date || entries.some((entry) => entry.date === date && entry.status === 'drawn')) return Boolean(date)
+    const amount = drawCatchUpAmount(challenge, today, entries, date)
+    if (amount === null) return false
+    await repository.saveChallengeWithCatchUp(challenge, { challengeId: challenge.id, date, amount, status: 'drawn', drawnAt: now().toISOString() })
+    return true
+  }, [now, repository, today])
+
+  const startCatchUp = useCallback(() => act(async () => {
+    if (!active || dateMovedOn()) return
+    const opened = await drawCatchUpFor(active.challenge, activeCatchUps)
+    setLedger(await repository.readLedger())
+    setCatchUpOpen(opened)
+  }), [act, active, activeCatchUps, dateMovedOn, drawCatchUpFor, repository])
+
+  const confirmCatchUp = useCallback(() => act(async () => {
+    if (!active || !currentCatchUp || dateMovedOn()) return
+    const confirmed: CatchUpEntry = { ...currentCatchUp, status: 'confirmed', confirmedAt: now().toISOString() }
+    const others = activeCatchUps.filter((entry) => entry.date !== confirmed.date)
+    const next = rebalanceUpcoming(active.challenge, today, [...others, confirmed], randomId())
+    await repository.saveChallengeWithCatchUp(next, confirmed)
+    replaceChallenge(next)
+    const afterConfirm = (await repository.readLedger()).catchUps.filter((entry) => entry.challengeId === active.id)
+    const continues = await drawCatchUpFor(next, afterConfirm)
+    setLedger(await repository.readLedger())
+    setCatchUpOpen(continues)
+    setFeedback({ tone: 'success', message: { kind: 'catch-up-confirmed' } })
+  }), [act, active, activeCatchUps, currentCatchUp, dateMovedOn, drawCatchUpFor, now, replaceChallenge, repository, today])
+
+  const pauseCatchUp = useCallback(() => setCatchUpOpen(false), [])
+
+  // ---- Penalty pot: the person confirms a payment they made themselves. The app never pays. -------------------
+  const payPenalty = useCallback((challengeId: string, amountOre: number) => act(async () => {
+    await repository.recordPenaltyPayment(challengeId, amountOre)
+    setLedger(await repository.readLedger())
+    setFeedback({ tone: 'success', message: { kind: 'penalty-paid' } })
+  }), [act, repository])
+
   return {
+    ledger,
+    activeCatchUps,
+    shock: shock ? { amount: shock.amount, minimumSek: shock.range.minimumSek, maximumSek: shock.range.maximumSek } : null,
+    drawShockAgain,
+    acceptShock,
+    catchUp: {
+      open: catchUpOpen,
+      pending: pendingCatchUps.length,
+      date: currentCatchUpDate,
+      amount: currentCatchUp?.amount ?? null,
+      position: confirmedCatchUps + 1,
+      total: confirmedCatchUps + pendingCatchUps.length,
+      started: hasDrawnCatchUp,
+      noRoom: catchUpNoRoom,
+    },
+    startCatchUp,
+    confirmCatchUp,
+    pauseCatchUp,
+    payPenalty,
     phase,
     today,
     items,
