@@ -16,8 +16,17 @@ bank integration: every challenge lives only on the device. The interface is Swe
 
 - A challenge has a `ChallengeConfig`: `targetSek`, `startDate`, `endDate`, `initialMinimumSek` (50), `preferredMaximumSek` (500).
 - The original challenge: 50,000 SEK, 2027-01-01 to 2027-06-30 (181 days). It stays as it is.
-- **New challenges are created by duration**, never by typing dates. The person picks 1, 2, 3, 4, 5, 6 (default), 9 or 12 months;
-  the start date is today in `Europe/Stockholm` and the end date is calculated. The calculated dates are stored in the same
+- **New challenges are created by duration**, never by typing dates. The person picks 1, 2, 3, 4, 5, 6 (default), 9 or 12 months,
+  or **Till nyår**; the start date is today in `Europe/Stockholm` and the end date is calculated.
+- **Till nyår** ends on 31 December of the start year (8 Nov 2026 gives 31 Dec 2026, 54 days). If the challenge would start on
+  31 December itself, it ends on the next 31 December instead of becoming an empty challenge.
+- **Daily limits are per challenge.** The creation form lets the user choose the lowest and highest amount of a day (defaults 50 and 500
+  SEK; whole kronor, minimum at least 1, minimum not above maximum, maximum at most 100,000). They are stored in the challenge config
+  (`initialMinimumSek`, `preferredMaximumSek`), so different challenges can use different limits and existing challenges keep theirs.
+  There is no schema change: configs always carried both fields. Allocation and recovery read the challenge's own limits.
+- Recovery never changes the chosen maximum. If reaching the target needs a higher daily amount, the app says so (a warning on Home
+  with the exact amount needed) and the configured maximum stays as chosen; if the target cannot be reached, it says why.
+- The app is **not connected to a bank**. It draws a random amount; the user transfers the money themselves and then confirms. The calculated dates are stored in the same
   `startDate`/`endDate` fields as before, so there is no schema change and existing challenges are never recalculated.
 - **Month rule** (`addMonths`): keep the day of the month; if the target month is shorter, use its last day. 8 Nov + 6 months = 8 May;
   31 Jan + 1 month = 28 Feb (29 Feb in a leap year); 31 Mar + 1 month = 30 Apr; 29 Feb + 12 months = 28 Feb. It is pure

@@ -316,13 +316,59 @@ export function addMonths(date: string, months: number): string {
   return toDateKey(targetYear, targetMonth, Math.min(day, daysInMonth(targetYear, targetMonth)))
 }
 
+/** The special duration "Till nyår": from today until 31 December. */
+export const NEW_YEAR_DURATION = 'new-year' as const
+
+export type DurationChoice = (typeof DURATION_MONTH_OPTIONS)[number] | typeof NEW_YEAR_DURATION
+
+/** Every duration offered in the creation form, "Till nyår" last. */
+export const DURATION_OPTIONS: readonly DurationChoice[] = [...DURATION_MONTH_OPTIONS, NEW_YEAR_DURATION]
+
 /**
- * The configuration of a challenge that starts on `startDate` and lasts `months` calendar months.
- * Start and end dates are stored in the config exactly as before; this only calculates them.
+ * The end date of "Till nyår" for a challenge that starts on `date`: 31 December of the same year.
+ * If that date is not after the start (the challenge would start ON 31 December), the next 31 December is used
+ * instead, so the option never produces an empty or invalid challenge.
  */
-export function configForDuration(startDate: string, months: number, targetSek: number = DEFAULT_CHALLENGE_CONFIG.targetSek): ChallengeConfig {
-  if (months < 1) throw new Error('A challenge lasts at least one month')
-  return { ...DEFAULT_CHALLENGE_CONFIG, targetSek, startDate, endDate: addMonths(startDate, months) }
+export function newYearEnd(date: string): string {
+  if (!isCalendarDate(date)) throw new Error('Date must be a calendar date')
+  const year = Number(date.slice(0, 4))
+  const thisYearEnd = `${year}-12-31`
+  return thisYearEnd > date ? thisYearEnd : `${year + 1}-12-31`
+}
+
+export function endDateForDuration(startDate: string, duration: number | typeof NEW_YEAR_DURATION): string {
+  return duration === NEW_YEAR_DURATION ? newYearEnd(startDate) : addMonths(startDate, duration)
+}
+
+/** The allowed range of a single day's amount, chosen per challenge. */
+export interface DailyLimits {
+  minimumSek: number
+  maximumSek: number
+}
+
+export const DEFAULT_DAILY_LIMITS: DailyLimits = {
+  minimumSek: DEFAULT_CHALLENGE_CONFIG.initialMinimumSek,
+  maximumSek: DEFAULT_CHALLENGE_CONFIG.preferredMaximumSek,
+}
+
+/**
+ * The configuration of a challenge that starts on `startDate` and lasts the chosen duration.
+ * Start date, end date and both daily limits are stored in the config; this only calculates them.
+ */
+export function configForDuration(
+  startDate: string,
+  duration: number | typeof NEW_YEAR_DURATION,
+  targetSek: number = DEFAULT_CHALLENGE_CONFIG.targetSek,
+  limits: DailyLimits = DEFAULT_DAILY_LIMITS,
+): ChallengeConfig {
+  if (typeof duration === 'number' && duration < 1) throw new Error('A challenge lasts at least one month')
+  return {
+    targetSek,
+    startDate,
+    endDate: endDateForDuration(startDate, duration),
+    initialMinimumSek: limits.minimumSek,
+    preferredMaximumSek: limits.maximumSek,
+  }
 }
 
 function assertCalendarDate(date: string): void {
