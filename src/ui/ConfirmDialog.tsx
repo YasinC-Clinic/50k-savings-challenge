@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { useI18n } from '../i18n/LanguageProvider'
 
 interface ConfirmDialogProps {
   title: string
@@ -16,12 +17,13 @@ export function ConfirmDialog({
   title,
   children,
   confirmLabel,
-  cancelLabel = 'Avbryt',
+  cancelLabel,
   danger = false,
   confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useI18n()
   const cancelButton = useRef<HTMLButtonElement>(null)
   const latestCancel = useRef(onCancel)
 
@@ -45,7 +47,7 @@ export function ConfirmDialog({
         <div className="dialog-body">{children}</div>
         <div className="dialog-actions">
           <button type="button" className="secondary-button" ref={cancelButton} onClick={onCancel}>
-            {cancelLabel}
+            {cancelLabel ?? t.common.cancel}
           </button>
           <button
             type="button"

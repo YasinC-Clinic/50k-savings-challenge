@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { CHALLENGE_LIMITS, DEFAULT_DURATION_MONTHS, DURATION_OPTIONS, NEW_YEAR_DURATION } from '../domain/challenge'
 import { stockholmDateKey } from '../app/savings-view'
+import { createI18n } from '../i18n/i18n'
 import { defaultForm, durationLabel, parseAmount, parseTarget, planFor, validateForm, type ChallengeForm } from './create-challenge-form'
 
+const sv = createI18n('sv')
+const en = createI18n('en')
 const TODAY = '2026-11-08'
 const form = (overrides: Partial<ChallengeForm> = {}): ChallengeForm => ({
   name: 'Min utmaning',
@@ -15,18 +18,18 @@ const form = (overrides: Partial<ChallengeForm> = {}): ChallengeForm => ({
 
 describe('defaults', () => {
   it('selects six months, 50,000 SEK and 50-500 SEK per day', () => {
-    expect(defaultForm(0)).toEqual({ name: 'Utmaning 1', target: '50000', duration: 6, minDaily: '50', maxDaily: '500' })
-    expect(defaultForm(0).duration).toBe(DEFAULT_DURATION_MONTHS)
+    expect(defaultForm(0, sv)).toEqual({ name: 'Utmaning 1', target: '50000', duration: 6, minDaily: '50', maxDaily: '500' })
+    expect(defaultForm(0, sv).duration).toBe(DEFAULT_DURATION_MONTHS)
   })
 
   it('numbers the default name after the challenges that already exist', () => {
-    expect(defaultForm(2).name).toBe('Utmaning 3')
+    expect(defaultForm(2, sv).name).toBe('Utmaning 3')
   })
 })
 
 describe('duration labels', () => {
   it('uses Swedish singular and plural and ends with "Till nyår"', () => {
-    expect(DURATION_OPTIONS.map(durationLabel)).toEqual([
+    expect(DURATION_OPTIONS.map((duration) => durationLabel(duration, sv))).toEqual([
       '1 månad',
       '2 månader',
       '3 månader',
@@ -79,7 +82,7 @@ describe('the plan is calculated from today, never typed', () => {
 
 describe('a valid form', () => {
   it('creates a config that starts today, lasts six months and keeps the default limits', () => {
-    const result = validateForm(form(), TODAY)
+    const result = validateForm(form(), TODAY, sv)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.config).toEqual({ targetSek: 50_000, startDate: TODAY, endDate: '2027-05-08', initialMinimumSek: 50, preferredMaximumSek: 500 })
@@ -88,12 +91,12 @@ describe('a valid form', () => {
   })
 
   it('stores the custom daily limits chosen by the user in the config', () => {
-    const result = validateForm(form({ duration: 1, target: '6000', minDaily: '100', maxDaily: '300' }), TODAY)
+    const result = validateForm(form({ duration: 1, target: '6000', minDaily: '100', maxDaily: '300' }), TODAY, sv)
     expect(result.ok && result.value.config).toEqual({ targetSek: 6_000, startDate: TODAY, endDate: '2026-12-08', initialMinimumSek: 100, preferredMaximumSek: 300 })
   })
 
   it('accepts "Till nyår" when the target fits with a higher maximum', () => {
-    const result = validateForm(form({ duration: NEW_YEAR_DURATION, maxDaily: '1000' }), TODAY)
+    const result = validateForm(form({ duration: NEW_YEAR_DURATION, maxDaily: '1000' }), TODAY, sv)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value.config).toMatchObject({ startDate: TODAY, endDate: '2026-12-31', preferredMaximumSek: 1_000 })
@@ -101,30 +104,30 @@ describe('a valid form', () => {
   })
 
   it.each([4, 5, 6, 9, 12] as const)('accepts 50,000 SEK over %i months at the default limits', (duration) => {
-    expect(validateForm(form({ duration }), TODAY).ok).toBe(true)
+    expect(validateForm(form({ duration }), TODAY, sv).ok).toBe(true)
   })
 
   it('accepts a minimum equal to the maximum', () => {
-    const result = validateForm(form({ duration: 1, target: '3100', minDaily: '100', maxDaily: '100' }), TODAY)
+    const result = validateForm(form({ duration: 1, target: '3100', minDaily: '100', maxDaily: '100' }), TODAY, sv)
     expect(result.ok && result.value.config).toMatchObject({ initialMinimumSek: 100, preferredMaximumSek: 100 })
   })
 
   it('accepts spaces and a kr suffix in every amount, and trims the name', () => {
-    const result = validateForm(form({ target: '30 000 kr', minDaily: ' 60 kr', maxDaily: '1 000', name: '  Semester  ' }), TODAY)
+    const result = validateForm(form({ target: '30 000 kr', minDaily: ' 60 kr', maxDaily: '1 000', name: '  Semester  ' }), TODAY, sv)
     expect(result.ok && result.value.config).toMatchObject({ targetSek: 30_000, initialMinimumSek: 60, preferredMaximumSek: 1_000 })
     expect(result.ok && result.value.name).toBe('Semester')
   })
 
   it('accepts exactly the lowest and highest reachable targets for the period and limits', () => {
-    expect(validateForm(form({ duration: 1, target: String(31 * 50) }), TODAY).ok).toBe(true)
-    expect(validateForm(form({ duration: 1, target: String(31 * 500) }), TODAY).ok).toBe(true)
-    expect(validateForm(form({ duration: 1, target: String(31 * 100), minDaily: '100', maxDaily: '300' }), TODAY).ok).toBe(true)
+    expect(validateForm(form({ duration: 1, target: String(31 * 50) }), TODAY, sv).ok).toBe(true)
+    expect(validateForm(form({ duration: 1, target: String(31 * 500) }), TODAY, sv).ok).toBe(true)
+    expect(validateForm(form({ duration: 1, target: String(31 * 100), minDaily: '100', maxDaily: '300' }), TODAY, sv).ok).toBe(true)
   })
 })
 
 describe('validation messages (Swedish)', () => {
   const errorsOf = (overrides: Partial<ChallengeForm>) => {
-    const result = validateForm(form(overrides), TODAY)
+    const result = validateForm(form(overrides), TODAY, sv)
     return result.ok ? {} : result.errors
   }
 
@@ -170,7 +173,7 @@ describe('validation messages (Swedish)', () => {
 
   it('rejects a minimum above the maximum', () => {
     expect(errorsOf({ minDaily: '600', maxDaily: '500' }).minDaily).toBe('Lägsta dagsbelopp kan inte vara högre än högsta dagsbelopp.')
-    expect(validateForm(form({ minDaily: '600', maxDaily: '500' }), TODAY).ok).toBe(false)
+    expect(validateForm(form({ minDaily: '600', maxDaily: '500' }), TODAY, sv).ok).toBe(false)
   })
 
   it('rejects a maximum above the supported limit', () => {
@@ -188,6 +191,51 @@ describe('validation messages (Swedish)', () => {
 
   it('reports several problems at once', () => {
     expect(Object.keys(errorsOf({ target: 'abc', minDaily: 'x' })).sort()).toEqual(['minDaily', 'target'])
+  })
+})
+
+describe('the same validation speaks English when English is selected', () => {
+  const errorsOf = (overrides: Partial<ChallengeForm>) => {
+    const result = validateForm(form(overrides), TODAY, en)
+    return result.ok ? {} : result.errors
+  }
+
+  it('uses English defaults and duration labels', () => {
+    expect(defaultForm(0, en).name).toBe('Challenge 1')
+    expect(DURATION_OPTIONS.map((duration) => durationLabel(duration, en))).toEqual([
+      '1 month',
+      '2 months',
+      '3 months',
+      '4 months',
+      '5 months',
+      '6 months',
+      '9 months',
+      '12 months',
+      'Until New Year',
+    ])
+  })
+
+  it('explains impossible targets in English with English amounts', () => {
+    expect(errorsOf({ duration: NEW_YEAR_DURATION }).target).toMatch(/The goal is too high for Until New Year \(54 days\)\. At most SEK\s27,000 can be saved \(SEK\s500 per day\)/)
+    expect(errorsOf({ duration: 12, target: '20000', minDaily: '100' }).target).toMatch(/The goal is too low for 12 months \(366 days\)\. At least SEK\s36,600 is needed/)
+  })
+
+  it('explains invalid limits in English', () => {
+    expect(errorsOf({ minDaily: '600', maxDaily: '500' }).minDaily).toBe('The lowest daily amount cannot be higher than the highest daily amount.')
+    expect(errorsOf({ minDaily: '0' }).minDaily).toBe('The lowest daily amount must be at least SEK 1.')
+    expect(errorsOf({ maxDaily: 'abc' }).maxDaily).toMatch(/^Enter the highest daily amount in whole kronor/)
+    expect(errorsOf({ target: 'abc' }).target).toMatch(/^Enter the goal in whole kronor/)
+  })
+
+  it('never changes what is valid: the same inputs validate identically in both languages', () => {
+    const inputs: Array<Partial<ChallengeForm>> = [{}, { duration: 1 }, { duration: NEW_YEAR_DURATION }, { minDaily: '600' }, { target: 'x' }, { maxDaily: '0' }]
+    for (const overrides of inputs) {
+      const swedish = validateForm(form(overrides), TODAY, sv)
+      const english = validateForm(form(overrides), TODAY, en)
+      expect(english.ok).toBe(swedish.ok)
+      if (swedish.ok && english.ok) expect(english.value.config).toEqual(swedish.value.config)
+      if (!swedish.ok && !english.ok) expect(Object.keys(english.errors).sort()).toEqual(Object.keys(swedish.errors).sort())
+    }
   })
 })
 

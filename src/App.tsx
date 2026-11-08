@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { createAppServices, useSavingsApp, type AppServices } from './app/use-savings-app'
+import { feedbackText } from './i18n/describe'
+import { LanguageProvider, useI18n } from './i18n/LanguageProvider'
 import { CalendarScreen } from './ui/CalendarScreen'
 import { ChallengesScreen } from './ui/ChallengesScreen'
 import { HomeScreen } from './ui/HomeScreen'
@@ -11,11 +13,11 @@ import './ui/screens.css'
 
 type Tab = 'home' | 'calendar' | 'challenges' | 'settings'
 
-const TABS: Array<{ id: Tab; label: string; icon: string }> = [
-  { id: 'home', label: 'Idag', icon: '⌂' },
-  { id: 'calendar', label: 'Kalender', icon: '▦' },
-  { id: 'challenges', label: 'Utmaningar', icon: '☰' },
-  { id: 'settings', label: 'Inställningar', icon: '⚙' },
+const TAB_ICONS: Array<{ id: Tab; icon: string }> = [
+  { id: 'home', icon: '⌂' },
+  { id: 'calendar', icon: '▦' },
+  { id: 'challenges', icon: '☰' },
+  { id: 'settings', icon: '⚙' },
 ]
 
 interface AppProps {
@@ -23,24 +25,43 @@ interface AppProps {
   services?: AppServices
 }
 
+/** The language provider wraps everything, including the recovery screens that appear when the data cannot be opened. */
 function App({ services }: AppProps) {
+  return (
+    <LanguageProvider>
+      <AppContent services={services} />
+    </LanguageProvider>
+  )
+}
+
+function AppContent({ services }: AppProps) {
+  const i18n = useI18n()
+  const { t } = i18n
   const [resolvedServices] = useState(() => services ?? createAppServices())
   const app = useSavingsApp(resolvedServices)
   const [tab, setTab] = useState<Tab>('home')
-  const visibleError = app.feedback?.tone === 'error' ? app.feedback.text : undefined
+  const visibleError = app.feedback?.tone === 'error' ? feedbackText(app.feedback.message, i18n) : undefined
 
   switch (app.phase.kind) {
     case 'loading':
       return (
         <main className="app-shell loading-state">
           <span className="loading-mark">S</span>
-          <p>Förbereder ditt sparande…</p>
+          <p>{t.app.loading}</p>
         </main>
       )
     case 'legacy-damaged':
       return <RecoveryScreen today={app.today} error={visibleError} onExportRaw={app.exportRawData} onSkip={app.skipDamagedData} />
     case 'storage-problem':
-      return <StorageProblemScreen today={app.today} message={app.phase.message} error={visibleError} onExportRaw={app.exportRawData} onRetry={app.retry} />
+      return (
+        <StorageProblemScreen
+          today={app.today}
+          problem={app.phase.error}
+          error={visibleError}
+          onExportRaw={app.exportRawData}
+          onRetry={app.retry}
+        />
+      )
     case 'outdated':
       return <OutdatedScreen />
   }
@@ -50,15 +71,15 @@ function App({ services }: AppProps) {
       <header className="topbar">
         <a className="wordmark" href="#idag" onClick={() => setTab('home')}>
           <span className="wordmark-mark">S</span>
-          <span>spar</span>
+          <span>{t.app.brand}</span>
         </a>
-        <span className="local-badge">Privat · på den här enheten</span>
+        <span className="local-badge">{t.app.privateBadge}</span>
       </header>
 
       {app.feedback && (
         <div className={`message ${app.feedback.tone}`} role={app.feedback.tone === 'error' ? 'alert' : 'status'}>
-          <span>{app.feedback.text}</span>
-          <button type="button" onClick={app.dismissFeedback} aria-label="Stäng meddelandet">
+          <span>{feedbackText(app.feedback.message, i18n)}</span>
+          <button type="button" onClick={app.dismissFeedback} aria-label={t.app.dismiss}>
             ×
           </button>
         </div>
@@ -113,8 +134,8 @@ function App({ services }: AppProps) {
         />
       )}
 
-      <nav className="bottom-nav" aria-label="Huvudmeny">
-        {TABS.map((entry) => (
+      <nav className="bottom-nav" aria-label={t.app.navLabel}>
+        {TAB_ICONS.map((entry) => (
           <button
             key={entry.id}
             type="button"
@@ -123,7 +144,7 @@ function App({ services }: AppProps) {
             onClick={() => setTab(entry.id)}
           >
             <span aria-hidden="true">{entry.icon}</span>
-            {entry.label}
+            {t.app.tabs[entry.id]}
           </button>
         ))}
       </nav>

@@ -1,34 +1,11 @@
-const currency = new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 })
-const shortDate = new Intl.DateTimeFormat('sv-SE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
-const longDay = new Intl.DateTimeFormat('sv-SE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
-
-/** Swedish singular/plural: plural(1, 'dag', 'dagar') -> "1 dag". */
-export function plural(count: number, singular: string, pluralForm: string): string {
-  return `${count} ${count === 1 ? singular : pluralForm}`
-}
-
-/** "50 000 kr". */
-export function sek(amount: number): string {
-  return currency.format(amount)
-}
+/**
+ * Calendar helpers that do not depend on the language. Everything that formats a date or an amount for display
+ * lives in `src/i18n/formatters.ts`, so switching language can never change a stored value.
+ */
 
 function toUtcNoon(dateKey: string): Date {
   const [year, month, day] = dateKey.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day, 12))
-}
-
-/** "30 jun. 2027". The date key is a calendar date, so no time zone conversion is involved. */
-export function formatDate(dateKey: string): string {
-  return shortDate.format(toUtcNoon(dateKey))
-}
-
-/** "måndag 8 november". */
-export function formatDayLong(dateKey: string): string {
-  return longDay.format(toUtcNoon(dateKey))
-}
-
-export function formatRange(startDate: string, endDate: string): string {
-  return `${formatDate(startDate)} – ${formatDate(endDate)}`
 }
 
 /** Monday-first weekday index (0-6) of a calendar date. */

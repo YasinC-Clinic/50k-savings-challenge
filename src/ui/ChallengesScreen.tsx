@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { getDashboard } from '../app/savings-view'
 import type { ChallengeItem, NewChallengeInput } from '../app/use-savings-app'
+import { challengeStatusLabel, challengeTitle, originLabel } from '../i18n/describe'
+import { useI18n } from '../i18n/LanguageProvider'
 import { CreateChallengeForm } from './CreateChallengeForm'
-import { formatRange, plural, sek } from './format'
-import { challengeStatusLabel, challengeTitle, originLabel } from './sv'
 
 interface ChallengesScreenProps {
   items: ChallengeItem[]
@@ -15,6 +15,7 @@ interface ChallengesScreenProps {
 }
 
 export function ChallengesScreen({ items, activeId, today, onSwitch, onCreate, onRename }: ChallengesScreenProps) {
+  const { t } = useI18n()
   const [creating, setCreating] = useState(false)
   const sorted = [...items].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const isFinished = (item: ChallengeItem) => getDashboard(item.challenge, today).status === 'finished'
@@ -24,18 +25,18 @@ export function ChallengesScreen({ items, activeId, today, onSwitch, onCreate, o
   return (
     <section className="page-section">
       <p className="eyebrow">
-        <span className="status-dot" /> Dina utmaningar
+        <span className="status-dot" /> {t.challenges.eyebrow}
       </p>
-      <h2 className="page-title">Utmaningar</h2>
-      <p className="page-intro">Varje utmaning är helt separat. Om du skapar en ny behålls alla andra med allt sparande.</p>
+      <h2 className="page-title">{t.challenges.title}</h2>
+      <p className="page-intro">{t.challenges.intro}</p>
 
       {creating ? (
         <article className="settings-card">
-          <h3>Ny utmaning</h3>
+          <h3>{t.challenges.newTitle}</h3>
           <CreateChallengeForm
             today={today}
             existingCount={items.length}
-            submitLabel="Skapa utmaning"
+            submitLabel={t.challenges.create}
             onCancel={() => setCreating(false)}
             onSubmit={async (input) => {
               const created = await onCreate(input)
@@ -45,12 +46,12 @@ export function ChallengesScreen({ items, activeId, today, onSwitch, onCreate, o
         </article>
       ) : (
         <button type="button" className="draw-button" onClick={() => setCreating(true)}>
-          Ny utmaning <span aria-hidden="true">+</span>
+          {t.challenges.newButton} <span aria-hidden="true">+</span>
         </button>
       )}
 
-      <ChallengeList title="Pågående och kommande" items={current} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} />
-      <ChallengeList title="Avslutade (historik)" items={history} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} />
+      <ChallengeList title={t.challenges.current} items={current} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} />
+      <ChallengeList title={t.challenges.history} items={history} activeId={activeId} today={today} onSwitch={onSwitch} onRename={onRename} />
     </section>
   )
 }
@@ -87,30 +88,31 @@ interface ChallengeCardProps {
 }
 
 function ChallengeCard({ item, today, isActive, onSwitch, onRename }: ChallengeCardProps) {
+  const i18n = useI18n()
+  const { t, fmt } = i18n
   const [renaming, setRenaming] = useState(false)
   const [draftName, setDraftName] = useState(item.name ?? '')
   const dashboard = getDashboard(item.challenge, today)
-  const title = challengeTitle(item.name, item.challenge.config)
-  const origin = originLabel(item.origin)
+  const title = challengeTitle(item.name, item.challenge.config, i18n)
+  const origin = originLabel(item.origin, i18n)
 
   return (
     <li className={`challenge-card${isActive ? ' active' : ''}`}>
       <div className="card-row">
         <h4>{title}</h4>
-        <span className="pill">{challengeStatusLabel[dashboard.status]}</span>
+        <span className="pill">{challengeStatusLabel(dashboard.status, i18n)}</span>
       </div>
       <div className="badges">
-        {isActive && <span className="badge active-badge">Aktiv</span>}
+        {isActive && <span className="badge active-badge">{t.challenges.active}</span>}
         {origin && <span className="badge">{origin}</span>}
       </div>
-      <p className="card-meta">
-        {formatRange(dashboard.startDate, dashboard.endDate)} · {dashboard.totalDays} dagar
-      </p>
+      <p className="card-meta">{t.challenges.meta(fmt.range(dashboard.startDate, dashboard.endDate), t.units.days(dashboard.totalDays))}</p>
       <div className="progress-track small" aria-hidden="true">
         <span className="progress-fill" style={{ width: `${dashboard.progressPercent}%` }} />
       </div>
       <p className="card-meta">
-        <b>{sek(dashboard.savedSek)}</b> sparat av {sek(dashboard.targetSek)} · {plural(dashboard.confirmedDays, 'bekräftad dag', 'bekräftade dagar')}
+        <b>{fmt.sek(dashboard.savedSek)}</b>
+        {t.challenges.savedOf(fmt.sek(dashboard.targetSek), t.challenges.confirmedDaysCount(dashboard.confirmedDays))}
       </p>
 
       {renaming ? (
@@ -123,29 +125,28 @@ function ChallengeCard({ item, today, isActive, onSwitch, onRename }: ChallengeC
           }}
         >
           <label className="visually-hidden" htmlFor={`rename-${item.id}`}>
-            Nytt namn
+            {t.challenges.newName}
           </label>
           <input id={`rename-${item.id}`} value={draftName} maxLength={60} onChange={(event) => setDraftName(event.target.value)} />
           <button type="submit" className="secondary-button compact">
-            Spara
+            {t.common.save}
           </button>
           <button type="button" className="link-button" onClick={() => setRenaming(false)}>
-            Avbryt
+            {t.common.cancel}
           </button>
         </form>
       ) : (
         <div className="card-actions">
           {!isActive && (
             <button type="button" className="secondary-button compact" onClick={() => onSwitch(item.id)}>
-              Gör aktiv
+              {t.challenges.makeActive}
             </button>
           )}
           <button type="button" className="link-button" onClick={() => setRenaming(true)}>
-            Byt namn
+            {t.challenges.rename}
           </button>
         </div>
       )}
     </li>
   )
 }
-

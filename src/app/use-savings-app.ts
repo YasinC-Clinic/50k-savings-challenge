@@ -6,6 +6,7 @@ import {
   recalculateAfterMisses,
   type Challenge,
   type ChallengeConfig,
+  type Recovery,
 } from '../domain/challenge'
 import {
   LegacyDataDamagedError,
@@ -16,7 +17,6 @@ import {
   type BackupSummary,
   type ChallengeOrigin,
 } from '../persistence/savings-repository'
-import { errorMessage, recoveryNotice, type Notice } from '../ui/sv'
 import { millisecondsUntilStockholmMidnight, shouldRecover, stockholmDateKey } from './savings-view'
 
 export interface AppServices {
@@ -42,13 +42,32 @@ export type AppPhase =
   | { kind: 'ready' }
   /** Data of the previous app version is damaged: export it, then explicitly continue without it. */
   | { kind: 'legacy-damaged' }
-  | { kind: 'storage-problem'; message: string }
+  | { kind: 'storage-problem'; error: unknown }
   /** A newer version of the app has upgraded the stored data; this copy must reload. */
   | { kind: 'outdated' }
 
+/**
+ * What happened, without any text. The screen turns it into words in the CURRENT language, so a message that is
+ * already visible changes language together with the rest of the interface.
+ */
+export type FeedbackMessage =
+  | { kind: 'drawn' }
+  | { kind: 'confirmed' }
+  | { kind: 'created' }
+  | { kind: 'restored' }
+  | { kind: 'imported'; count: number }
+  | { kind: 'date-changed' }
+  | { kind: 'error'; error: unknown }
+
 export interface Feedback {
   tone: 'success' | 'error' | 'info'
-  text: string
+  message: FeedbackMessage
+}
+
+/** The plan was recalculated because of missed days; shown once, in the current language. */
+export interface RecoveryNoticeData {
+  recovery: Recovery
+  config: ChallengeConfig
 }
 
 export type ImportMode = 'import-as-new' | 'replace'
@@ -114,13 +133,13 @@ export function useSavingsApp(services: AppServices) {
   const [phase, setPhase] = useState<AppPhase>({ kind: 'loading' })
   const [items, setItems] = useState<ChallengeItem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [notice, setNotice] = useState<RecoveryNoticeData | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
   const busy = useRef(false)
   const loadToken = useRef(0)
 
-  const fail = useCallback((error: unknown) => setFeedback({ tone: 'error', text: errorMessage(error) }), [])
+  const fail = useCallback((error: unknown) => setFeedback({ tone: 'error', message: { kind: 'error', error } }), [])
 
   /** Loads everything from the database and brings the ACTIVE challenge up to date for `todayKey`. */
   const reload = useCallback(async (todayKey: string) => {
@@ -136,12 +155,12 @@ export function useSavingsApp(services: AppServices) {
 
       const byId = new Map(challenges.map((challenge) => [challenge.id, challenge]))
       const current = active ? byId.get(active) : undefined
-      let recoveryResult: Notice | null = null
+      let recoveryResult: RecoveryNoticeData | null = null
       if (current && shouldRecover(current, todayKey)) {
         const result = recalculateAfterMisses(current, todayKey, randomId())
         await repository.saveChallenge(result.challenge)
         byId.set(current.id, result.challenge)
-        recoveryResult = recoveryNotice(result.recovery, current.config)
+        recoveryResult = { recovery: result.recovery, config: current.config }
       }
 
       if (token !== loadToken.current) return
@@ -159,7 +178,7 @@ export function useSavingsApp(services: AppServices) {
       if (token !== loadToken.current) return
       if (error instanceof LegacyDataDamagedError) setPhase({ kind: 'legacy-damaged' })
       else if (error instanceof PersistenceVersionError) setPhase({ kind: 'outdated' })
-      else setPhase({ kind: 'storage-problem', message: errorMessage(error) })
+      else setPhase({ kind: 'storage-problem', error })
     }
   }, [repository])
 
@@ -208,7 +227,7 @@ export function useSavingsApp(services: AppServices) {
   const dateMovedOn = useCallback(() => {
     if (stockholmDateKey(now()) === today) return false
     refreshToday()
-    setFeedback({ tone: 'info', text: 'Datumet har ändrats. Appen har uppdaterats – försök igen.' })
+    setFeedback({ tone: 'info', message: { kind: 'date-changed' } })
     return true
   }, [now, today, refreshToday])
 
@@ -221,7 +240,7 @@ export function useSavingsApp(services: AppServices) {
     const next = drawToday(active.challenge, today)
     await repository.saveChallenge(next)
     replaceChallenge(next)
-    setFeedback({ tone: 'info', text: 'Dagens belopp är draget. Det räknas som sparat först när du bekräftar.' })
+    setFeedback({ tone: 'info', message: { kind: 'drawn' } })
   }), [act, active, dateMovedOn, repository, replaceChallenge, today])
 
   const confirm = useCallback(() => act(async () => {
@@ -229,7 +248,7 @@ export function useSavingsApp(services: AppServices) {
     const next = confirmDay(active.challenge, today)
     await repository.saveChallenge(next)
     replaceChallenge(next)
-    setFeedback({ tone: 'success', text: 'Sparandet är bekräftat. Bra jobbat!' })
+    setFeedback({ tone: 'success', message: { kind: 'confirmed' } })
   }), [act, active, dateMovedOn, repository, replaceChallenge, today])
 
   const createNewChallenge = useCallback((input: NewChallengeInput) => act(async () => {
@@ -239,7 +258,7 @@ export function useSavingsApp(services: AppServices) {
     await repository.setActiveChallenge(id)
     setNotice(null)
     await reload(today)
-    setFeedback({ tone: 'success', text: 'Utmaningen är skapad och aktiv.' })
+    setFeedback({ tone: 'success', message: { kind: 'created' } })
     return id
   }), [act, reload, repository, today])
 
@@ -270,10 +289,7 @@ export function useSavingsApp(services: AppServices) {
     setNotice(null)
     await reload(today)
     const count = result.importedChallengeIds.length
-    setFeedback({
-      tone: 'success',
-      text: mode === 'replace' ? 'Säkerhetskopian är återställd.' : count === 1 ? 'Utmaningen är importerad som en ny utmaning.' : `${count} utmaningar är importerade som nya.`,
-    })
+    setFeedback({ tone: 'success', message: mode === 'replace' ? { kind: 'restored' } : { kind: 'imported', count } })
     return true
   }), [act, reload, repository, today])
 

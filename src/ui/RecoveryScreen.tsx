@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { downloadTextFile } from '../app/download'
+import { errorMessage } from '../i18n/describe'
+import { useI18n } from '../i18n/LanguageProvider'
 import { ConfirmDialog } from './ConfirmDialog'
 
 interface RecoveryScreenProps {
   today: string
-  /** The latest error, if any: these screens have no other place to show it. */
+  /** The latest error text, if any: these screens have no other place to show it. */
   error?: string
   onExportRaw: () => Promise<string | undefined>
   onSkip: () => Promise<unknown>
@@ -24,13 +26,15 @@ function ErrorLine({ error }: { error?: string }) {
  * Nothing is changed or deleted here: the user first saves a raw copy, then explicitly chooses to continue.
  */
 export function RecoveryScreen({ today, error, onExportRaw, onSkip }: RecoveryScreenProps) {
+  const { t } = useI18n()
+  const r = t.recovery
   const [exported, setExported] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
   const exportRaw = async () => {
     const text = await onExportRaw()
     if (!text) return
-    downloadTextFile(`50k-sparande-radata-${today}.json`, text)
+    downloadTextFile(t.files.raw(today), text)
     setExported(true)
   }
 
@@ -38,42 +42,37 @@ export function RecoveryScreen({ today, error, onExportRaw, onSkip }: RecoverySc
     <main className="app-shell">
       <section className="page-section">
         <p className="eyebrow">
-          <span className="status-dot warning" /> Sparad data kunde inte läsas
+          <span className="status-dot warning" /> {r.eyebrow}
         </p>
-        <h1 className="challenge-title">Din tidigare data är skadad</h1>
+        <h1 className="challenge-title">{r.title}</h1>
         <p className="page-intro">
-          Appen hittade sparad data från en tidigare version, men den går inte att läsa säkert. <b>Inget har raderats eller ändrats.</b>
+          {r.introBefore}
+          <b>{r.introBold}</b>
         </p>
         <ErrorLine error={error} />
 
         <article className="settings-card">
-          <h3>Steg 1. Spara en kopia (rekommenderas)</h3>
-          <p>
-            Rådata är en teknisk fil som kan kräva hjälp av någon med teknisk kunskap för att läsas. Spara den ändå, så finns den kvar om du
-            behöver den senare.
-          </p>
+          <h3>{r.step1Title}</h3>
+          <p>{r.step1Body}</p>
           <button type="button" className="draw-button" onClick={() => void exportRaw()}>
-            Spara rådata
+            {r.saveRaw}
           </button>
-          {exported && <p className="confirmed-copy">Rådatan är sparad som en fil på din enhet.</p>}
+          {exported && <p className="confirmed-copy">{r.saved}</p>}
         </article>
 
         <article className="settings-card">
-          <h3>Steg 2. Fortsätt utan den skadade datan</h3>
-          <p>
-            Då startar appen utan den. Den skadade datan finns kvar orörd på enheten och kan sparas som rådata senare. Du kan sedan skapa en ny
-            utmaning eller importera en säkerhetskopia.
-          </p>
+          <h3>{r.step2Title}</h3>
+          <p>{r.step2Body}</p>
           <button type="button" className="danger-button" onClick={() => setConfirming(true)}>
-            Fortsätt utan den skadade datan
+            {r.continue}
           </button>
         </article>
       </section>
 
       {confirming && (
         <ConfirmDialog
-          title="Fortsätta utan den skadade datan?"
-          confirmLabel="Ja, fortsätt"
+          title={r.dialogTitle}
+          confirmLabel={r.dialogConfirm}
           danger
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
@@ -82,9 +81,11 @@ export function RecoveryScreen({ today, error, onExportRaw, onSkip }: RecoverySc
           }}
         >
           <p>
-            Appen startar tom. Den skadade datan raderas <b>inte</b> – den ligger kvar på enheten men visas inte.
+            {r.dialogBefore}
+            <b>{r.dialogBold}</b>
+            {r.dialogAfter}
           </p>
-          {!exported && <p>Du har ännu inte sparat någon kopia av rådatan. Vi rekommenderar att du gör det först.</p>}
+          {!exported && <p>{r.dialogNoCopy}</p>}
         </ConfirmDialog>
       )}
     </main>
@@ -93,36 +94,39 @@ export function RecoveryScreen({ today, error, onExportRaw, onSkip }: RecoverySc
 
 interface StorageProblemScreenProps {
   today: string
-  message: string
+  /** What went wrong; described in the current language. */
+  problem: unknown
   error?: string
   onExportRaw: () => Promise<string | undefined>
   onRetry: () => void
 }
 
 /** The stored data could not be used for another reason. Nothing is changed; a raw copy can still be saved. */
-export function StorageProblemScreen({ today, message, error, onExportRaw, onRetry }: StorageProblemScreenProps) {
+export function StorageProblemScreen({ today, problem, error, onExportRaw, onRetry }: StorageProblemScreenProps) {
+  const i18n = useI18n()
+  const { t } = i18n
   const exportRaw = async () => {
     const text = await onExportRaw()
-    if (text) downloadTextFile(`50k-sparande-radata-${today}.json`, text)
+    if (text) downloadTextFile(t.files.raw(today), text)
   }
 
   return (
     <main className="app-shell">
       <section className="page-section">
         <p className="eyebrow">
-          <span className="status-dot warning" /> Något gick fel
+          <span className="status-dot warning" /> {t.storageProblem.eyebrow}
         </p>
-        <h1 className="challenge-title">Datan kunde inte öppnas</h1>
+        <h1 className="challenge-title">{t.storageProblem.title}</h1>
         <p className="page-intro" role="alert">
-          {message}
+          {errorMessage(problem, i18n)}
         </p>
         <article className="settings-card">
-          <p>Inget har ändrats. Du kan försöka igen eller spara en teknisk kopia av allt som finns lagrat.</p>
+          <p>{t.storageProblem.body}</p>
           <button type="button" className="draw-button" onClick={onRetry}>
-            Försök igen
+            {t.storageProblem.retry}
           </button>
           <button type="button" className="secondary-button" onClick={() => void exportRaw()}>
-            Spara rådata
+            {t.storageProblem.saveRaw}
           </button>
           <ErrorLine error={error} />
         </article>
@@ -133,19 +137,17 @@ export function StorageProblemScreen({ today, message, error, onExportRaw, onRet
 
 /** A newer copy of the app has upgraded the stored data. Writing from this older copy could damage it. */
 export function OutdatedScreen() {
+  const { t } = useI18n()
   return (
     <main className="app-shell">
       <section className="page-section">
         <p className="eyebrow">
-          <span className="status-dot warning" /> Ny version
+          <span className="status-dot warning" /> {t.outdated.eyebrow}
         </p>
-        <h1 className="challenge-title">Appen behöver laddas om</h1>
-        <p className="page-intro">
-          Din sparade data har uppdaterats av en nyare version av appen. Ladda om för att fortsätta. Den här sidan sparar ingenting, så inget kan
-          skadas.
-        </p>
+        <h1 className="challenge-title">{t.outdated.title}</h1>
+        <p className="page-intro">{t.outdated.body}</p>
         <button type="button" className="draw-button" onClick={() => window.location.reload()}>
-          Ladda om
+          {t.outdated.reload}
         </button>
       </section>
     </main>
