@@ -3,8 +3,11 @@ import {
   DEFAULT_CHALLENGE_CONFIG,
   DEFAULT_DURATION_MONTHS,
   DURATION_MONTH_OPTIONS,
+  DURATION_OPTIONS,
+  NEW_YEAR_DURATION,
   addMonths,
   configForDuration,
+  newYearEnd,
   createChallenge,
   drawToday,
   listChallengeDates,
@@ -236,5 +239,86 @@ describe('existing challenges are not recalculated', () => {
     addMonths(stored.config.startDate, 6)
     expect(JSON.stringify(stored)).toBe(snapshot)
     expect(stored.config.endDate).toBe('2027-06-30')
+  })
+})
+
+describe('"Till nyår" runs from today to 31 December', () => {
+  it('is offered after all month options and does not change the default', () => {
+    expect([...DURATION_OPTIONS]).toEqual([1, 2, 3, 4, 5, 6, 9, 12, NEW_YEAR_DURATION])
+    expect(DEFAULT_DURATION_MONTHS).toBe(6)
+  })
+
+  it.each([
+    ['today in the test period', '2026-11-08', '2026-12-31'],
+    ['1 January', '2027-01-01', '2027-12-31'],
+    ['30 December', '2026-12-30', '2026-12-31'],
+    ['a leap day', '2028-02-29', '2028-12-31'],
+    ['a future year', '2031-06-15', '2031-12-31'],
+    ['31 December itself rolls over to the next 31 December (never an empty challenge)', '2026-12-31', '2027-12-31'],
+    ['31 December of a leap year rolls over too', '2028-12-31', '2029-12-31'],
+  ])('%s: %s ends %s', (_label, start, end) => {
+    expect(newYearEnd(start)).toBe(end)
+    expect(configForDuration(start, NEW_YEAR_DURATION).endDate).toBe(end)
+  })
+
+  it('calculates the exact number of calendar days: 8 Nov to 31 Dec 2026 is 54 days', () => {
+    const config = configForDuration('2026-11-08', NEW_YEAR_DURATION, 50_000, { minimumSek: 100, maximumSek: 1_500 })
+    expect(config).toMatchObject({ startDate: '2026-11-08', endDate: '2026-12-31', initialMinimumSek: 100, preferredMaximumSek: 1_500 })
+    expect(listChallengeDates(config)).toHaveLength(54)
+    expect(independentDayCount('2026-11-08', '2026-12-31')).toBe(54)
+  })
+
+  it('allocates the target exactly over those days using the chosen limits', () => {
+    const config = configForDuration('2026-11-08', NEW_YEAR_DURATION, 50_000, { minimumSek: 100, maximumSek: 1_500 })
+    const challenge = createChallenge('new-year', config)
+    expect(challenge.days).toHaveLength(54)
+    expect(total(challenge.days.map((day) => day.amount))).toBe(50_000)
+    expect(challenge.days.every((day) => day.amount >= 100 && day.amount <= 1_500)).toBe(true)
+    expect(challenge.days.at(-1)?.date).toBe('2026-12-31')
+  })
+
+  it('explains through the existing rules that 50,000 SEK does not fit 54 days at 50-500 SEK', () => {
+    expect(() => createChallenge('too-much', configForDuration('2026-11-08', NEW_YEAR_DURATION))).toThrow('not achievable')
+  })
+
+  it.each([
+    ['2026-12-30', 2],
+    ['2026-12-31', 366],
+    ['2027-01-01', 365],
+    ['2026-10-24', 69],
+  ])('from %s it has %i calendar days', (start, days) => {
+    const config = configForDuration(start, NEW_YEAR_DURATION, days * 275)
+    expect(independentDayCount(config.startDate, config.endDate)).toBe(days)
+    expect(listChallengeDates(config)).toHaveLength(days)
+  })
+
+  it('keeps every date exactly once across the October 2026 daylight-saving change', () => {
+    const dates = listChallengeDates(configForDuration('2026-10-24', NEW_YEAR_DURATION, 69 * 275))
+    expect(dates.filter((date) => date === '2026-10-25')).toHaveLength(1)
+    expect(new Set(dates).size).toBe(dates.length)
+    expect(dates.at(-1)).toBe('2026-12-31')
+  })
+
+  it('never produces an invalid challenge: for every start date in 2026-2028 the end is later and at least 2 days exist', () => {
+    const starts = listChallengeDates({ ...DEFAULT_CHALLENGE_CONFIG, targetSek: 1_096 * 275, startDate: '2026-01-01', endDate: '2028-12-31' })
+    for (const start of starts) {
+      const end = newYearEnd(start)
+      expect(end > start).toBe(true)
+      expect(end.endsWith('-12-31')).toBe(true)
+      expect(independentDayCount(start, end)).toBeGreaterThanOrEqual(2)
+    }
+  })
+
+  it('uses 31 December as the deadline for recovery and says so', () => {
+    const challenge = createChallenge('deadline', configForDuration('2026-11-08', NEW_YEAR_DURATION, 20_000, { minimumSek: 100, maximumSek: 1_000 }))
+    expect(recalculateAfterMisses(challenge, '2026-12-31', 'r').recovery.status).toBe('needs_higher_ceiling')
+    const after = recalculateAfterMisses(challenge, '2027-01-01', 'r').recovery
+    expect(after.status).toBe('impossible')
+    expect(after.message).toContain('2026-12-31')
+    expect(() => drawToday(challenge, '2027-01-01')).toThrow('outside the challenge')
+  })
+
+  it('rejects an invalid start date', () => {
+    expect(() => newYearEnd('2026-02-30')).toThrow('calendar date')
   })
 })

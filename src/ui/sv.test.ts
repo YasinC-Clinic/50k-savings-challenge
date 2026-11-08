@@ -89,7 +89,8 @@ describe('notices', () => {
     const notice = planNotice({ kind: 'unreachable', unplannedSek: 1200 }, config)
     expect(notice?.tone).toBe('danger')
     expect(norm(notice?.body ?? '')).toContain('1 200 kr saknas')
-    expect(notice?.body).toContain('flyttas inte automatiskt')
+    expect(norm(notice?.body ?? '')).toContain('med dagsbelopp mellan 50 kr och 500 kr')
+    expect(notice?.body).toContain('Slutdatumet och dagsbeloppen ändras inte automatiskt')
   })
 
   it('summarises an ended and a completed challenge, and says nothing when on track', () => {

@@ -5,7 +5,7 @@
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
-import { DEFAULT_CHALLENGE_CONFIG, createChallenge } from '../domain/challenge'
+import { DEFAULT_CHALLENGE_CONFIG, confirmDay, createChallenge, drawToday } from '../domain/challenge'
 import { MAX_BACKUP_CHARACTERS, describeBackup, parseBackup } from './backup'
 import { BackupValidationError, LegacyDataDamagedError, PersistenceVersionError, toPersistenceError } from './errors'
 import { SavingsDatabase, SavingsRepository } from './savings-repository'
@@ -179,5 +179,93 @@ describe('raw export covers every table', () => {
     await expect(repository.loadChallenge('raw2')).rejects.toMatchObject({ name: 'PersistenceIntegrityError' })
     const raw = await exportRawLegacyData(repository.database.name, '2027-01-01T10:00:00.000Z')
     expect(raw).toContain('-5')
+  })
+})
+
+describe('daily limits are stored and backed up per challenge', () => {
+  const january = { targetSek: 6_000, startDate: '2027-01-01', endDate: '2027-01-31', initialMinimumSek: 100, preferredMaximumSek: 300 }
+  const makeCustom = () => createChallenge('limits', january, 'custom')
+  const makeDefault = () => createChallenge('plain', { ...DEFAULT_CHALLENGE_CONFIG, startDate: '2027-01-01', endDate: '2027-01-31', targetSek: 8_000 }, 'plain')
+
+  it('keeps challenges with different limits side by side on the same dates and never mixes them', async () => {
+    const repository = openRepository()
+    await repository.saveChallenge(makeDefault())
+    await repository.saveChallenge(makeCustom())
+    await repository.saveChallenge(confirmDay(drawToday(makeCustom(), '2027-01-01'), '2027-01-01'))
+
+    const plain = (await repository.loadChallenge('plain'))!
+    const custom = (await repository.loadChallenge('custom'))!
+    expect(plain.config).toMatchObject({ initialMinimumSek: 50, preferredMaximumSek: 500 })
+    expect(custom.config).toMatchObject({ initialMinimumSek: 100, preferredMaximumSek: 300 })
+    expect(plain).toEqual(makeDefault())
+    expect(custom.days[0].status).toBe('confirmed')
+    expect(custom.days.every((day) => day.amount >= 100 && day.amount <= 300)).toBe(true)
+  })
+
+  it('exports each challenge with its own limits and restores them unchanged (replace)', async () => {
+    const source = openRepository()
+    await source.saveChallenge(makeDefault())
+    await source.saveChallenge(makeCustom())
+    const backup = await source.exportBackup('2027-01-01T10:00:00.000Z')
+    const parsed = JSON.parse(backup) as { challenges: Array<{ id: string; config: Record<string, number> }> }
+    expect(parsed.challenges.find((challenge) => challenge.id === 'custom')?.config).toMatchObject({ initialMinimumSek: 100, preferredMaximumSek: 300 })
+    expect(parsed.challenges.find((challenge) => challenge.id === 'plain')?.config).toMatchObject({ initialMinimumSek: 50, preferredMaximumSek: 500 })
+
+    const target = openRepository()
+    await target.restoreBackup(backup, REPLACE)
+    expect(await target.loadChallenge('custom')).toEqual(makeCustom())
+    expect(await target.loadChallenge('plain')).toEqual(makeDefault())
+  })
+
+  it('imports as new challenges that keep their own limits', async () => {
+    const source = openRepository()
+    await source.saveChallenge(makeCustom())
+    const target = openRepository()
+    await target.saveChallenge(makeDefault())
+    const result = await target.restoreBackup(await source.exportBackup('2027-01-01T10:00:00.000Z'), IMPORT)
+    const imported = (await target.loadChallenge(result.importedChallengeIds[0]))!
+    expect(imported.config).toEqual(makeCustom().config)
+    expect(imported.days).toEqual(makeCustom().days)
+    expect(await target.loadChallenge('plain')).toEqual(makeDefault())
+  })
+
+  it('gives an imported v1 backup the original 50-500 limits', async () => {
+    const target = openRepository()
+    await target.restoreBackup(v1BackupJson(playedChallenge('old-file')), IMPORT)
+    expect((await target.loadChallenge())!.config).toMatchObject({ initialMinimumSek: 50, preferredMaximumSek: 500, targetSek: 50_000 })
+  })
+
+  it('migrates a v1 database with the original 50-500 limits and leaves every amount untouched', async () => {
+    const name = uniqueName('extras-limits-legacy')
+    const legacy = playedChallenge('limits-legacy')
+    await seedV1Challenge(name, legacy)
+    const migrated = (await openRepository(name).loadChallenge())!
+    expect(migrated.config).toMatchObject({ initialMinimumSek: 50, preferredMaximumSek: 500 })
+    expect(migrated.days).toEqual(legacy.days)
+  })
+
+  it.each([
+    ['an amount below the challenge\'s own minimum', (c: { challenges: Array<{ days: Array<{ amount: number }> }> }) => { c.challenges[0].days[3].amount = 99 }],
+    ['a minimum above the maximum', (c: { challenges: Array<{ config: Record<string, number> }> }) => { c.challenges[0].config.initialMinimumSek = 400 }],
+    ['a maximum above the supported limit', (c: { challenges: Array<{ config: Record<string, number> }> }) => { c.challenges[0].config.preferredMaximumSek = 100_001 }],
+    ['a fractional minimum', (c: { challenges: Array<{ config: Record<string, number> }> }) => { c.challenges[0].config.initialMinimumSek = 99.5 }],
+  ])('rejects a backup with %s and changes nothing', async (_label, corrupt) => {
+    const source = openRepository()
+    await source.saveChallenge(makeCustom())
+    const backup = JSON.parse(await source.exportBackup('2027-01-01T10:00:00.000Z'))
+    corrupt(backup)
+    const target = openRepository()
+    await target.saveChallenge(makeDefault())
+    await expect(target.restoreBackup(JSON.stringify(backup), REPLACE)).rejects.toBeInstanceOf(BackupValidationError)
+    await expect(target.restoreBackup(JSON.stringify(backup), IMPORT)).rejects.toBeInstanceOf(BackupValidationError)
+    expect(await target.listChallenges()).toEqual([makeDefault()])
+  })
+
+  it('never lets the limits of an existing challenge change', async () => {
+    const repository = openRepository()
+    await repository.saveChallenge(makeCustom())
+    const widened = createChallenge('limits', { ...january, preferredMaximumSek: 400 }, 'custom')
+    await expect(repository.saveChallenge(widened)).rejects.toMatchObject({ name: 'PersistenceIntegrityError' })
+    expect(await repository.loadChallenge('custom')).toEqual(makeCustom())
   })
 })

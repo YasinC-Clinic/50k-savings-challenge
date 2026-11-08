@@ -170,7 +170,7 @@ describe('creating a challenge and the daily draw', () => {
 
     expect(screen.getByText('Hur länge vill du spara?', { selector: 'legend' })).toBeTruthy()
     const radios = screen.getAllByRole('radio')
-    expect(radios.map((radio) => radio.textContent)).toEqual(['1 månad', '2 månader', '3 månader', '4 månader', '5 månader', '6 månader', '9 månader', '12 månader'])
+    expect(radios.map((radio) => radio.textContent)).toEqual(['1 månad', '2 månader', '3 månader', '4 månader', '5 månader', '6 månader', '9 månader', '12 månader', 'Till nyår'])
     expect(radios.filter((radio) => radio.getAttribute('aria-checked') === 'true').map((radio) => radio.textContent)).toEqual(['6 månader'])
     expect(screen.queryByLabelText('Startdatum')).toBeNull()
     expect(screen.queryByLabelText('Slutdatum')).toBeNull()
@@ -180,6 +180,161 @@ describe('creating a challenge and the daily draw', () => {
     expect(summary).toContain('Slutdatum8 maj 2027')
     expect(summary).toContain('Antal spardagar182 dagar')
     expect(summary).toContain('Sparmål50 000 kr')
+    expect(summary).toContain('Dagsbelopp50 kr – 500 kr')
+    expect((screen.getByLabelText('Lägsta dagsbelopp (kr)') as HTMLInputElement).value).toBe('50')
+    expect((screen.getByLabelText('Högsta dagsbelopp (kr)') as HTMLInputElement).value).toBe('500')
+  })
+
+  it('shows every field of the creation form in the requested order', async () => {
+    const { services } = setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    const labels = Array.from(document.querySelectorAll('.challenge-form label, .challenge-form legend')).map((node) => norm(node.textContent))
+    expect(labels).toEqual(['Namn (valfritt)', 'Sparmål (kr)', 'Hur länge vill du spara?', 'Lägsta dagsbelopp (kr)', 'Högsta dagsbelopp (kr)'])
+    expect(norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)).toMatch(/Startdatum.*Slutdatum.*Antal spardagar.*Sparmål.*Dagsbelopp/)
+  })
+
+  it('creates a "Till nyår" challenge ending on 31 December with the exact number of days and the chosen limits', async () => {
+    const { services, repository } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    await user.click(screen.getByRole('radio', { name: 'Till nyår' }))
+    for (const [label, value] of [['Lägsta dagsbelopp (kr)', '100'], ['Högsta dagsbelopp (kr)', '1500']] as const) {
+      const field = screen.getByLabelText(label)
+      await user.clear(field)
+      await user.type(field, value)
+    }
+    const summary = norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)
+    expect(summary).toContain('Startdatum8 nov. 2026 (idag)')
+    expect(summary).toContain('Slutdatum31 dec. 2026')
+    expect(summary).toContain('Antal spardagar54 dagar')
+    expect(summary).toContain('Dagsbelopp100 kr – 1 500 kr')
+
+    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
+    await screen.findByRole('button', { name: 'Dra dagens belopp' })
+    const stored = (await repository.loadChallenge())!
+    expect(stored.config).toEqual({ targetSek: 50_000, startDate: '2026-11-08', endDate: '2026-12-31', initialMinimumSek: 100, preferredMaximumSek: 1_500 })
+    expect(stored.days).toHaveLength(54)
+    expect(stored.days.reduce((total, day) => total + day.amount, 0)).toBe(50_000)
+    expect(stored.days.every((day) => day.amount >= 100 && day.amount <= 1_500)).toBe(true)
+    expect(norm(document.body.textContent)).toContain('DAG 1 AV 54')
+  })
+
+  it('explains that 50,000 kr does not fit "Till nyår" at the default limits and blocks creation', async () => {
+    const { services, repository } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    await user.click(screen.getByRole('radio', { name: 'Till nyår' }))
+    expect(await screen.findByText(/Målet är för högt för Till nyår \(54 dagar\)\. Högst 27.000/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Starta utmaningen' })).toHaveProperty('disabled', true)
+    expect(await repository.listChallenges()).toEqual([])
+  })
+
+  it('stores custom daily limits per challenge and keeps every amount inside them', async () => {
+    const { services, repository } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    await user.click(screen.getByRole('radio', { name: '1 månad' }))
+    for (const [label, value] of [['Sparmål (kr)', '8000'], ['Lägsta dagsbelopp (kr)', '200'], ['Högsta dagsbelopp (kr)', '300']] as const) {
+      const field = screen.getByLabelText(label)
+      await user.clear(field)
+      await user.type(field, value)
+    }
+    expect(norm(screen.getByLabelText('Sammanfattning av utmaningen').textContent)).toContain('Dagsbelopp200 kr – 300 kr')
+    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
+    await screen.findByRole('button', { name: 'Dra dagens belopp' })
+
+    const stored = (await repository.loadChallenge())!
+    expect(stored.config).toMatchObject({ targetSek: 8_000, initialMinimumSek: 200, preferredMaximumSek: 300 })
+    expect(stored.days).toHaveLength(31)
+    expect(stored.days.reduce((total, day) => total + day.amount, 0)).toBe(8_000)
+    expect(stored.days.every((day) => Number.isInteger(day.amount) && day.amount >= 200 && day.amount <= 300)).toBe(true)
+  })
+
+  it.each([
+    ['a minimum above the maximum', '600', '500', /Lägsta dagsbelopp kan inte vara högre än högsta dagsbelopp/],
+    ['a zero minimum', '0', '500', /Lägsta dagsbelopp måste vara minst 1 kr/],
+    ['a fractional minimum', '50.5', '500', /Ange lägsta dagsbelopp i hela kronor/],
+    ['a text maximum', '50', 'abc', /Ange högsta dagsbelopp i hela kronor/],
+    ['a maximum above the supported limit', '50', '100001', /Högsta dagsbelopp kan vara högst 100.000/],
+  ])('rejects %s with a Swedish message and creates nothing', async (_label, minimum, maximum, message) => {
+    const { services, repository } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    for (const [label, value] of [['Lägsta dagsbelopp (kr)', minimum], ['Högsta dagsbelopp (kr)', maximum]] as const) {
+      const field = screen.getByLabelText(label)
+      await user.clear(field)
+      await user.type(field, value)
+    }
+    expect(await screen.findByText(message)).toBeTruthy()
+    const submit = screen.getByRole('button', { name: 'Starta utmaningen' })
+    expect(submit).toHaveProperty('disabled', true)
+    await user.click(submit)
+    expect(await repository.listChallenges()).toEqual([])
+  })
+
+  it('lets different challenges use different limits without touching an existing challenge', async () => {
+    const { services, repository } = setup()
+    const existing = createChallenge('custom-existing', { targetSek: 31 * 100, startDate: '2027-01-01', endDate: '2027-01-31', initialMinimumSek: 80, preferredMaximumSek: 120 }, 'existing')
+    await repository.saveChallenge(existing, { name: 'Gamla' })
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Gamla')
+
+    await goTo(user, 'Utmaningar')
+    await user.click(await screen.findByRole('button', { name: /Ny utmaning/ }))
+    await user.click(screen.getByRole('radio', { name: '1 månad' }))
+    for (const [label, value] of [['Sparmål (kr)', '8000'], ['Lägsta dagsbelopp (kr)', '200'], ['Högsta dagsbelopp (kr)', '300']] as const) {
+      const field = screen.getByLabelText(label)
+      await user.clear(field)
+      await user.type(field, value)
+    }
+    await user.click(screen.getByRole('button', { name: 'Skapa utmaning' }))
+    await user.click(await screen.findByRole('button', { name: 'Dra dagens belopp' }))
+    await user.click(await screen.findByRole('button', { name: 'Jag har sparat beloppet' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Ja, jag har sparat det' }))
+    await screen.findByText('Sparat idag')
+
+    const created = (await repository.listChallenges()).find((challenge) => challenge.id !== 'existing')!
+    expect(created.config).toMatchObject({ initialMinimumSek: 200, preferredMaximumSek: 300, targetSek: 8_000 })
+    expect(created.days.every((day) => day.amount >= 200 && day.amount <= 300)).toBe(true)
+    expect(created.days[0].status).toBe('confirmed')
+    // The existing challenge keeps its own limits, its amounts and its dates, byte for byte.
+    expect(await repository.loadChallenge('existing')).toEqual(existing)
+    expect(existing.config).toMatchObject({ initialMinimumSek: 80, preferredMaximumSek: 120 })
+  })
+
+  it('says clearly that the app is not connected to a bank and never moves money', async () => {
+    const automatic = /överförs automatiskt|dras automatiskt|automatisk överföring|automatiskt från ditt konto/i
+    const { services } = setup()
+    const user = userEvent.setup()
+    render(<App services={services} />)
+    await screen.findByText('Skapa din första utmaning')
+    const welcome = norm(document.body.textContent)
+    expect(welcome).toContain('Appen är inte kopplad till någon bank och flyttar aldrig pengar')
+    expect(welcome).not.toMatch(automatic)
+
+    await user.click(screen.getByRole('button', { name: 'Starta utmaningen' }))
+    await screen.findByRole('button', { name: 'Dra dagens belopp' })
+    expect(norm(document.querySelector('.daily-card')?.textContent)).toContain('Appen är inte kopplad till någon bank – du för själv över pengarna')
+
+    await user.click(screen.getByRole('button', { name: 'Dra dagens belopp' }))
+    await screen.findByText('Idag – inte bekräftat än')
+    expect(norm(document.querySelector('.daily-card')?.textContent)).toContain('För över det själv via din bank – appen flyttar inga pengar')
+
+    await user.click(screen.getByRole('button', { name: 'Jag har sparat beloppet' }))
+    const dialog = norm((await screen.findByRole('dialog')).textContent)
+    expect(dialog).toContain('Har du själv fört över')
+    expect(dialog).toContain('Appen är inte kopplad till någon bank och har inte flyttat några pengar')
+    expect(norm(document.body.textContent)).not.toMatch(automatic)
+
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Avbryt' }))
+    await goTo(user, 'Inställningar')
+    expect(norm(document.body.textContent)).toContain('Appen är inte kopplad till någon bank. Den flyttar eller drar aldrig pengar')
   })
 
   it('updates the summary live when another duration or target is chosen', async () => {

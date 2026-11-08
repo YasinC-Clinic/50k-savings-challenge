@@ -543,11 +543,13 @@ button:disabled {
   }
 }
 
-@media (max-width: 24rem) {
+@media (max-width: 20rem) {
   .field-pair {
     grid-template-columns: 1fr;
   }
+}
 
+@media (max-width: 24rem) {
   .bottom-nav button {
     min-width: 4rem;
     font-size: 0.6rem;

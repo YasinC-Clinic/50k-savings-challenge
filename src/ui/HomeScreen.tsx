@@ -79,8 +79,8 @@ export function HomeScreen({ item, today, recovery, onDismissRecovery, onDraw, o
           }}
         >
           <p>
-            Har du flyttat <b>{sek(todayEntry.amount)}</b> till ditt sparande? Först när du bekräftar räknas beloppet som sparat, och
-            det går inte att ångra.
+            Har du själv fört över <b>{sek(todayEntry.amount)}</b> till ditt sparande via din bank? Appen är inte kopplad till någon bank och
+            har inte flyttat några pengar. Först när du bekräftar räknas beloppet som sparat, och det går inte att ångra.
           </p>
         </ConfirmDialog>
       )}
@@ -176,7 +176,10 @@ function DailyCard({ dashboard, today, entry, onDraw, onAskConfirm }: DailyCardP
       {dashboard.status === 'active' && entry?.status === 'undrawn' && (
         <>
           <h2>Dagens belopp väntar</h2>
-          <p className="daily-description">Dra ett slumpmässigt belopp för idag. Kommande belopp förblir dolda.</p>
+          <p className="daily-description">
+            Dra ett slumpmässigt belopp för idag. Kommande belopp förblir dolda. Appen är inte kopplad till någon bank – du för själv över
+            pengarna.
+          </p>
           <button type="button" className="draw-button" onClick={onDraw}>
             Dra dagens belopp <span aria-hidden="true">→</span>
           </button>
@@ -187,7 +190,8 @@ function DailyCard({ dashboard, today, entry, onDraw, onAskConfirm }: DailyCardP
           <p className="amount-label">Idag – inte bekräftat än</p>
           <p className="daily-amount">{sek(entry.amount)}</p>
           <p className="daily-description">
-            Beloppet är fast. Det räknas som sparat först när du bekräftar att du har satt undan det.
+            Beloppet är fast. För över det själv via din bank – appen flyttar inga pengar. Det räknas som sparat först när du har gjort
+            överföringen och bekräftar här.
           </p>
           <button type="button" className="draw-button confirm" onClick={onAskConfirm}>
             Jag har sparat beloppet <span aria-hidden="true">✓</span>

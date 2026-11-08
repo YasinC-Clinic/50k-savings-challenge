@@ -17,7 +17,8 @@ export function Onboarding({ today, onCreate }: OnboardingProps) {
         Spara <span>steg för steg</span>
       </h1>
       <p className="challenge-dates">
-        Välj ett mål och en period. Varje dag drar du ett slumpmässigt belopp och bekräftar när du har sparat det.
+        Välj ett mål, en period och dina dagsbelopp. Varje dag drar du ett slumpmässigt belopp, för själv över pengarna via din bank och
+        bekräftar sedan här. Appen är inte kopplad till någon bank och flyttar aldrig pengar.
       </p>
       <article className="settings-card">
         <h3>Skapa din första utmaning</h3>

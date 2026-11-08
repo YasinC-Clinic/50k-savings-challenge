@@ -98,6 +98,7 @@ export function SettingsScreen({
           </div>
         </dl>
         <p>Ingen inloggning, inga konton och ingen molntjänst. Appen fungerar utan internet.</p>
+        <p>Appen är inte kopplad till någon bank. Den flyttar eller drar aldrig pengar – du för själv över beloppen och bekräftar dem här.</p>
       </article>
 
       <article className="settings-card">

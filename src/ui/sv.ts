@@ -56,13 +56,13 @@ export function planNotice(plan: PlanStatus, config: ChallengeConfig): Notice | 
       return {
         tone: 'warning',
         title: 'Högre dagsbelopp krävs',
-        body: `För att nå målet behöver några kommande dagar bli upp till ${sek(plan.ceilingSek)} – mer än de ${sek(plan.preferredMaximumSek)} som är det önskade taket.`,
+        body: `För att nå målet i tid behöver några kommande dagar bli upp till ${sek(plan.ceilingSek)} – mer än ditt högsta dagsbelopp på ${sek(plan.preferredMaximumSek)}. Det valda taket har inte ändrats; beloppet är det som krävs för att nå målet innan slutdatumet.`,
       }
     case 'unreachable':
       return {
         tone: 'danger',
         title: 'Målet kan inte nås i tid',
-        body: `Med de dagar som är kvar går det inte att nå ${sek(config.targetSek)} till ${formatDate(config.endDate)}. ${sek(plan.unplannedSek)} saknas i planen. Slutdatumet flyttas inte automatiskt.`,
+        body: `Med de dagar som är kvar går det inte att nå ${sek(config.targetSek)} till ${formatDate(config.endDate)}. ${sek(plan.unplannedSek)} saknas i planen, med dagsbelopp mellan ${sek(config.initialMinimumSek)} och ${sek(config.preferredMaximumSek)}. Slutdatumet och dagsbeloppen ändras inte automatiskt.`,
       }
     case 'ended-short':
       return {
@@ -83,20 +83,20 @@ export function recoveryNotice(recovery: Recovery, config: ChallengeConfig): Not
     return {
       tone: 'danger',
       title: 'Målet kan inte längre nås',
-      body: `Missade dagar gör att ${sek(config.targetSek)} inte går att nå till ${formatDate(config.endDate)}. Slutdatumet flyttas inte automatiskt.`,
+      body: `Missade dagar gör att ${sek(config.targetSek)} inte går att nå till ${formatDate(config.endDate)} med dagsbelopp mellan ${sek(config.initialMinimumSek)} och ${sek(config.preferredMaximumSek)}. Slutdatumet flyttas inte automatiskt.`,
     }
   }
   if (recovery.status === 'needs_higher_ceiling') {
     return {
       tone: 'warning',
       title: 'Planen har räknats om',
-      body: `För att nå målet krävs nu belopp upp till ${sek(recovery.ceiling)} per dag – mer än det önskade taket på ${sek(config.preferredMaximumSek)}.`,
+      body: `För att nå målet krävs nu belopp upp till ${sek(recovery.ceiling)} per dag – mer än ditt högsta dagsbelopp på ${sek(config.preferredMaximumSek)}. Det valda taket har inte ändrats.`,
     }
   }
   return {
     tone: 'info',
     title: 'Planen har räknats om',
-    body: `Missade dagar räknas inte som sparade. De kommande beloppen har fördelats om och ligger inom ${sek(config.preferredMaximumSek)} per dag.`,
+    body: `Missade dagar räknas inte som sparade. De kommande beloppen har fördelats om och ligger mellan ${sek(config.initialMinimumSek)} och ${sek(config.preferredMaximumSek)} per dag.`,
   }
 }
 
