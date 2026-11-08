@@ -3,7 +3,7 @@
 A calm, private savings challenge. Each day you draw a random amount and confirm when you have actually saved it.
 Local-first and offline: no accounts, no backend, no cloud. The interface is in Swedish.
 
-- Create challenges with your own target, start date and end date (default: 50,000 SEK, ending 30 June 2027; start today or later).
+- Create challenges by choosing a duration (1, 2, 3, 4, 5, 6, 9 or 12 months; six is the default) and a target (default 50,000 SEK). The challenge starts today (Stockholm time) and the end date and number of days are calculated for you.
 - Run several independent challenges, switch between them, and keep finished ones as history.
 - Only confirmed amounts count. Missed days are visible and never count; the plan recalculates without moving the deadline.
 - Export and import backups (old v1 files import as a new challenge; v2 files can be added or, after confirmation, replace everything).

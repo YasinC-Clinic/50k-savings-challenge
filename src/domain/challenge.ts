@@ -291,6 +291,40 @@ function countDays(startDate: string, endDate: string): number {
   return count
 }
 
+/** Durations offered when creating a challenge, in whole calendar months. */
+export const DURATION_MONTH_OPTIONS = [1, 2, 3, 4, 5, 6, 9, 12] as const
+export const DEFAULT_DURATION_MONTHS = 6
+const MAX_ADDED_MONTHS = 120
+
+/**
+ * Adds whole calendar months to a calendar date (`YYYY-MM-DD`).
+ *
+ * The rule: keep the day of the month; if the resulting month is shorter, use its last day.
+ *   2026-11-08 + 6 = 2027-05-08     2027-01-31 + 1 = 2027-02-28     2028-01-31 + 1 = 2028-02-29
+ *   2027-03-31 + 1 = 2027-04-30     2028-02-29 + 12 = 2029-02-28
+ *
+ * Pure calendar arithmetic on year/month/day numbers. No `Date`, no UTC and no time zone are involved, so
+ * daylight-saving changes cannot move a date.
+ */
+export function addMonths(date: string, months: number): string {
+  if (!isCalendarDate(date)) throw new Error('Date must be a calendar date')
+  if (!Number.isInteger(months) || months < 0 || months > MAX_ADDED_MONTHS) throw new Error('Months must be a whole number of months')
+  const [year, month, day] = date.split('-').map(Number)
+  const monthIndex = year * 12 + (month - 1) + months
+  const targetYear = Math.floor(monthIndex / 12)
+  const targetMonth = (monthIndex % 12) + 1
+  return toDateKey(targetYear, targetMonth, Math.min(day, daysInMonth(targetYear, targetMonth)))
+}
+
+/**
+ * The configuration of a challenge that starts on `startDate` and lasts `months` calendar months.
+ * Start and end dates are stored in the config exactly as before; this only calculates them.
+ */
+export function configForDuration(startDate: string, months: number, targetSek: number = DEFAULT_CHALLENGE_CONFIG.targetSek): ChallengeConfig {
+  if (months < 1) throw new Error('A challenge lasts at least one month')
+  return { ...DEFAULT_CHALLENGE_CONFIG, targetSek, startDate, endDate: addMonths(startDate, months) }
+}
+
 function assertCalendarDate(date: string): void {
   if (!isCalendarDate(date)) throw new Error('Date must be a Sweden-local calendar date')
 }
